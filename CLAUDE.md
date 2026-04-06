@@ -160,13 +160,16 @@ I know something just because it's earlier in the list.
 
 ## My Background (use this to calibrate)
 
-- Rust/Bevy: functional, building real projects, not a beginner
+- Programming: Unreal Engine Blueprints (primary), some Godot C#
+- Rust/Bevy: no experience yet — learning Rust and Bevy through this project
 - wgpu: aware of it, haven't written compute shaders yet
-- Shader languages: minimal — treat WGSL as new territory
+- Shader languages: some Unreal Engine material graph work, tiny bit of
+  HLSL from a tutorial (didn't stick) — treat WGSL as new territory
 - GPU mental model: surface-level understanding, needs building
-- Cellular automata: understand GoL conceptually, want to go deeper
-- Goal: understand falling sand and reaction-diffusion deeply enough
-  to build my own variations from scratch
+- Cellular automata: understand GoL conceptually from watching a video,
+  has not implemented it
+- Goal: learn Rust, understand GPU compute shaders, falling sand, and
+  reaction-diffusion deeply enough to build my own variations from scratch
 
 ---
 
