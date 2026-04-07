@@ -56,7 +56,41 @@ impl ApplicationHandler for App {
             self.window = None;
             event_loop.exit();
         }
-        if WindowEvent::RedrawRequested == event {}
+        if WindowEvent::RedrawRequested == event {
+            let surface_texture = self
+                .surface
+                .as_ref()
+                .unwrap()
+                .get_current_texture()
+                .unwrap();
+            let mut recorder = self
+                .device
+                .as_ref()
+                .unwrap()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            let view = surface_texture
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            let render_pass = recorder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 1.0,
+                            g: 0.0,
+                            b: 1.0,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+            drop(render_pass);
+            self.queue.as_ref().unwrap().submit([recorder.finish()]);
+            surface_texture.present();
+        }
     }
 }
 
