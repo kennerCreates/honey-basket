@@ -1,4 +1,5 @@
-use iced::widget::shader::wgpu::RenderPassDescriptor;
+use iced::widget::shader;
+use iced::widget::shader::wgpu;
 
 #[derive(Default)]
 struct App {}
@@ -23,7 +24,7 @@ struct ColorPrimitive {
 impl App {
     fn update(&mut self, _message: Message) {}
     fn view(&self) -> iced::Element<'_, Message> {
-        iced::widget::shader(ColorShader {
+        shader(ColorShader {
             r: 1.0,
             g: 0.0,
             b: 1.0,
@@ -35,28 +36,41 @@ impl App {
 impl iced::widget::shader::Primitive for ColorPrimitive {
     fn prepare(
         &self,
-        device: &iced::widget::shader::wgpu::Device,
-        queue: &iced::widget::shader::wgpu::Queue,
-        format: iced::widget::shader::wgpu::TextureFormat,
-        storage: &mut iced::widget::shader::Storage,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        format: wgpu::TextureFormat,
+        storage: &mut shader::Storage,
         bounds: &iced::Rectangle,
-        viewport: &iced::widget::shader::Viewport,
+        viewport: &shader::Viewport,
     ) {
     }
     fn render(
         &self,
-        encoder: &mut iced::widget::shader::wgpu::CommandEncoder,
-        storage: &iced::widget::shader::Storage,
-        target: &iced::widget::shader::wgpu::TextureView,
+        encoder: &mut wgpu::CommandEncoder,
+        storage: &shader::Storage,
+        target: &wgpu::TextureView,
         clip_bounds: &iced::Rectangle<u32>,
     ) {
-        encoder.begin_render_pass(&RenderPassDescriptor){
-            color_attachments: []
-        }
+        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: self.r,
+                        g: self.g,
+                        b: self.b,
+                        a: 1.0,
+                    }),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
     }
 }
 
-impl iced::widget::shader::Program<Message> for ColorShader {
+impl shader::Program<Message> for ColorShader {
     type State = ();
     type Primitive = ColorPrimitive;
 
