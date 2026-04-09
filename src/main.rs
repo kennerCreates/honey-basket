@@ -1,6 +1,8 @@
 use iced::widget::shader;
 use iced::widget::shader::wgpu::{self, TextureUsages};
 
+use rand::Rng;
+
 #[derive(Default)]
 struct App {}
 
@@ -86,9 +88,39 @@ impl iced::widget::shader::Primitive for ColorPrimitive {
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING,
+                usage: TextureUsages::STORAGE_BINDING
+                    | TextureUsages::TEXTURE_BINDING
+                    | TextureUsages::COPY_DST,
                 view_formats: &[],
             });
+            let mut data: Vec<u8> = Vec::new();
+            for _ in 0..((bounds.width * bounds.height) as i32) {
+                let alive = rand::thread_rng().gen_bool(0.2) == true;
+                data.extend_from_slice(if alive {
+                    &[255, 255, 0, 255]
+                } else {
+                    &[0, 0, 0, 255]
+                });
+            }
+            queue.write_texture(
+                wgpu::ImageCopyTexture {
+                    texture: &texture_b,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &data,
+                wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * bounds.width as u32),
+                    rows_per_image: Some(bounds.height as u32),
+                },
+                wgpu::Extent3d {
+                    width: bounds.width as u32,
+                    height: bounds.height as u32,
+                    depth_or_array_layers: 1,
+                },
+            );
 
             let texture_view_a = texture_a.create_view(&wgpu::TextureViewDescriptor::default());
             let texture_view_b = texture_b.create_view(&wgpu::TextureViewDescriptor::default());

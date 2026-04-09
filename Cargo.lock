@@ -1567,6 +1567,7 @@ dependencies = [
  "env_logger",
  "iced",
  "log",
+ "rand",
  "wgpu 25.0.2",
 ]
 
