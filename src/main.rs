@@ -1,5 +1,5 @@
 use iced::widget::shader;
-use iced::widget::shader::wgpu;
+use iced::widget::shader::wgpu::{self, ShaderModuleDescriptor};
 
 #[derive(Default)]
 struct App {}
@@ -19,6 +19,14 @@ struct ColorPrimitive {
     r: f64,
     g: f64,
     b: f64,
+}
+
+#[derive(Debug)]
+struct ShaderPipeline {
+    pipeline: wgpu::ComputePipeline,
+    texture: wgpu::Texture,
+    texture_view: wgpu::TextureView,
+    bind_group: wgpu::BindGroup,
 }
 
 impl App {
@@ -43,6 +51,19 @@ impl iced::widget::shader::Primitive for ColorPrimitive {
         bounds: &iced::Rectangle,
         viewport: &shader::Viewport,
     ) {
+        if !storage.has::<ShaderPipeline>() {
+            let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            });
+            let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: None,
+                layout: None,
+                module: &shader_module,
+                entry_point: "main",
+            });
+            storage.store(ShaderPipeline { pipeline })
+        }
     }
     fn render(
         &self,
