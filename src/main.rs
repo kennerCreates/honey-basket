@@ -7,7 +7,9 @@ use rand::Rng;
 struct App {}
 
 #[derive(Debug)]
-enum Message {}
+enum Message {
+    Tick(std::time::Instant),
+}
 
 #[derive(Debug)]
 struct ColorShader {}
@@ -32,13 +34,21 @@ struct ShaderPipeline {
 }
 
 impl App {
-    fn update(&mut self, _message: Message) {}
+    fn update(&mut self, message: Message) {
+        match message {
+            Message::Tick(_instant) => {}
+        }
+    }
     fn view(&self) -> iced::Element<'_, Message> {
         shader(ColorShader {})
             .width(iced::Fill)
             .height(iced::Fill)
             .into()
     }
+}
+
+fn subscription(_app: &App) -> iced::Subscription<Message> {
+    iced::window::frames().map(Message::Tick)
 }
 
 impl iced::widget::shader::Primitive for ColorPrimitive {
@@ -297,5 +307,7 @@ impl shader::Program<Message> for ColorShader {
 }
 
 fn main() -> iced::Result {
-    iced::application("honey-basket", App::update, App::view).run()
+    iced::application("honey-basket", App::update, App::view)
+        .subscription(subscription)
+        .run()
 }
