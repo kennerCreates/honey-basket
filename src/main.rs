@@ -1,57 +1,68 @@
 use iced::widget::shader;
 use iced::widget::shader::wgpu::{self, TextureUsages};
-
 use rand::Rng;
+use std::time::{Duration, Instant};
 
 #[derive(Default)]
-struct App {}
-
-#[derive(Debug)]
-enum Message {
-    Tick(std::time::Instant),
+struct App {
+    latest_tick: Option<Instant>,
 }
 
 #[derive(Debug)]
-struct ColorShader {}
+enum Message {
+    Tick(Instant),
+}
 
 #[derive(Debug)]
-struct ColorPrimitive {}
+struct ColorShader {
+    latest_tick: Option<Instant>,
+}
+
+#[derive(Debug)]
+struct ColorPrimitive {
+    latest_tick: Option<Instant>,
+}
 
 #[derive(Debug)]
 struct ShaderPipeline {
     pipeline: wgpu::ComputePipeline,
-    texture_a: wgpu::Texture,
-    texture_b: wgpu::Texture,
-    texture_view_a: wgpu::TextureView,
-    texture_view_b: wgpu::TextureView,
+    _texture_a: wgpu::Texture,
+    _texture_b: wgpu::Texture,
+    _texture_view_a: wgpu::TextureView,
+    _texture_view_b: wgpu::TextureView,
     bind_group_a: wgpu::BindGroup,
     bind_group_b: wgpu::BindGroup,
     display_bind_group_a: wgpu::BindGroup,
     display_bind_group_b: wgpu::BindGroup,
     render_pipeline: wgpu::RenderPipeline,
-    sampler: wgpu::Sampler,
+    _sampler: wgpu::Sampler,
     ping_pong: bool,
+    last_processed_tick: Option<Instant>,
 }
 
 impl App {
     fn update(&mut self, message: Message) {
         match message {
-            Message::Tick(_instant) => {}
+            Message::Tick(instant) => {
+                self.latest_tick = Some(instant);
+            }
         }
     }
     fn view(&self) -> iced::Element<'_, Message> {
-        shader(ColorShader {})
-            .width(iced::Fill)
-            .height(iced::Fill)
-            .into()
+        shader(ColorShader {
+            latest_tick: self.latest_tick,
+        })
+        .width(iced::Fill)
+        .height(iced::Fill)
+        .into()
     }
 }
 
 fn subscription(_app: &App) -> iced::Subscription<Message> {
-    iced::window::frames().map(Message::Tick)
+    iced::time::every(Duration::from_millis(100)).map(Message::Tick)
 }
 
-impl iced::widget::shader::Primitive for ColorPrimitive {
+impl shader::Primitive for ColorPrimitive {
     fn prepare(
         &self,
         device: &wgpu::Device,
@@ -73,7 +84,7 @@ impl iced::widget::shader::Primitive for ColorPrimitive {
                 entry_point: "main",
             });
 
-            let texture_a = device.create_texture(&wgpu::TextureDescriptor {
+            let _texture_a = device.create_texture(&wgpu::TextureDescriptor {
                 label: None,
                 size: wgpu::Extent3d {
                     width: bounds.width as u32,
@@ -87,7 +98,7 @@ impl iced::widget::shader::Primitive for ColorPrimitive {
                 usage: TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             });
-            let texture_b = device.create_texture(&wgpu::TextureDescriptor {
+            let _texture_b = device.create_texture(&wgpu::TextureDescriptor {
                 label: None,
                 size: wgpu::Extent3d {
                     width: bounds.width as u32,
@@ -114,7 +125,7 @@ impl iced::widget::shader::Primitive for ColorPrimitive {
             }
             queue.write_texture(
                 wgpu::ImageCopyTexture {
-                    texture: &texture_b,
+                    texture: &_texture_b,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
@@ -132,8 +143,8 @@ impl iced::widget::shader::Primitive for ColorPrimitive {
                 },
             );
 
-            let texture_view_a = texture_a.create_view(&wgpu::TextureViewDescriptor::default());
-            let texture_view_b = texture_b.create_view(&wgpu::TextureViewDescriptor::default());
+            let _texture_view_a = _texture_a.create_view(&wgpu::TextureViewDescriptor::default());
+            let _texture_view_b = _texture_b.create_view(&wgpu::TextureViewDescriptor::default());
 
             let bind_group_a = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
@@ -141,11 +152,11 @@ impl iced::widget::shader::Primitive for ColorPrimitive {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&texture_view_a),
+                        resource: wgpu::BindingResource::TextureView(&_texture_view_a),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&texture_view_b),
+                        resource: wgpu::BindingResource::TextureView(&_texture_view_b),
                     },
                 ],
             });
@@ -155,16 +166,16 @@ impl iced::widget::shader::Primitive for ColorPrimitive {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&texture_view_b),
+                        resource: wgpu::BindingResource::TextureView(&_texture_view_b),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&texture_view_a),
+                        resource: wgpu::BindingResource::TextureView(&_texture_view_a),
                     },
                 ],
             });
 
-            let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+            let _sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
             let display_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: None,
                 source: wgpu::ShaderSource::Wgsl(include_str!("display.wgsl").into()),
@@ -198,11 +209,11 @@ impl iced::widget::shader::Primitive for ColorPrimitive {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&texture_view_a),
+                        resource: wgpu::BindingResource::TextureView(&_texture_view_a),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
+                        resource: wgpu::BindingResource::Sampler(&_sampler),
                     },
                 ],
             });
@@ -212,49 +223,54 @@ impl iced::widget::shader::Primitive for ColorPrimitive {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&texture_view_b),
+                        resource: wgpu::BindingResource::TextureView(&_texture_view_b),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
+                        resource: wgpu::BindingResource::Sampler(&_sampler),
                     },
                 ],
             });
             let ping_pong = true;
+            let last_processed_tick = None;
 
             storage.store(ShaderPipeline {
                 pipeline,
-                texture_a,
-                texture_b,
-                texture_view_a,
-                texture_view_b,
+                _texture_a,
+                _texture_b,
+                _texture_view_a,
+                _texture_view_b,
                 bind_group_a,
                 bind_group_b,
                 display_bind_group_a,
                 display_bind_group_b,
                 render_pipeline,
-                sampler,
+                _sampler,
                 ping_pong,
+                last_processed_tick,
             });
         }
         let pipeline_ref = storage.get_mut::<ShaderPipeline>().unwrap();
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         {
-            let mut compute_pass =
-                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-            compute_pass.set_pipeline(&pipeline_ref.pipeline);
-            if pipeline_ref.ping_pong {
-                compute_pass.set_bind_group(0, &pipeline_ref.bind_group_b, &[]);
-                pipeline_ref.ping_pong = false;
-            } else {
-                compute_pass.set_bind_group(0, &pipeline_ref.bind_group_a, &[]);
-                pipeline_ref.ping_pong = true;
+            if pipeline_ref.last_processed_tick != self.latest_tick {
+                let mut compute_pass =
+                    encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+                compute_pass.set_pipeline(&pipeline_ref.pipeline);
+                if pipeline_ref.ping_pong {
+                    compute_pass.set_bind_group(0, &pipeline_ref.bind_group_b, &[]);
+                    pipeline_ref.ping_pong = false;
+                } else {
+                    compute_pass.set_bind_group(0, &pipeline_ref.bind_group_a, &[]);
+                    pipeline_ref.ping_pong = true;
+                }
+                compute_pass.dispatch_workgroups(
+                    (bounds.width / 8.0) as u32,
+                    (bounds.height / 8.0) as u32,
+                    1,
+                );
+                pipeline_ref.last_processed_tick = self.latest_tick;
             }
-            compute_pass.dispatch_workgroups(
-                (bounds.width / 8.0) as u32,
-                (bounds.height / 8.0) as u32,
-                1,
-            );
         }
         queue.submit([encoder.finish()]);
     }
@@ -302,7 +318,9 @@ impl shader::Program<Message> for ColorShader {
         _cursor: iced::mouse::Cursor,
         _bounds: iced::Rectangle,
     ) -> ColorPrimitive {
-        ColorPrimitive {}
+        ColorPrimitive {
+            latest_tick: self.latest_tick,
+        }
     }
 }
 

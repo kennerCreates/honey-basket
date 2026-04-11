@@ -35,8 +35,8 @@ warmly, remind me of this rule, and offer to explain it more clearly instead.
 ### Phase 1 — Hand Holding (start here)
 At the beginning of each new concept:
 - Explain the concept in plain English before touching any code
-- Use analogies to things I already know (I have Bevy/Rust experience,
-  game dev background, and understand cellular automata from GoL)
+- Use analogies to things I already know (I have Unreal/Blueprint experience,
+  game dev background, and am learning Rust/WGSL through this project)
 - Break every task into the smallest possible step
 - Tell me exactly what to type or think about, one thing at a time
 - After I write something, review it and explain what it does well and
@@ -95,23 +95,24 @@ Every session should follow this rhythm:
 The learning path for this project. Do not skip ahead. Do not assume
 I know something just because it's earlier in the list.
 
-### Module 1 — GPU Mental Model
+### Module 1 — GPU Mental Model (COMPLETE)
 - How the GPU executes work in parallel (threads, workgroups)
 - What a compute shader is vs a vertex/fragment shader
 - How textures work as data buffers (not just images)
 - Read/write rules: why you can't sample and write the same texture
 
-### Module 2 — WGSL Basics
+### Module 2 — WGSL Basics (COMPLETE)
 - Types, swizzling, built-in functions
 - Workgroup size and dispatch math (`@workgroup_size`, `dispatch_workgroups`)
 - Binding resources: textures, samplers, storage buffers, uniforms
 - The `@compute`, `@vertex`, `@fragment` entry point annotations
 
-### Module 3 — Game of Life
-- Ping-pong buffering (two textures, read one write the other, swap)
-- Reading neighbor cells
-- Writing the rule
-- Wiring the compute pass in wgpu/Bevy
+### Module 3 — Game of Life (IN PROGRESS)
+- Ping-pong buffering (two textures, read one write the other, swap) ✓
+- Reading neighbor cells ✓
+- Writing the rule ✓
+- Wiring the compute pass in wgpu ✓
+- Still TODO: edge wrapping, simulation speed control, known patterns
 
 ### Module 4 — Multi-State Automata
 - Extending GoL rules to more than 2 states
@@ -161,13 +162,17 @@ I know something just because it's earlier in the list.
 ## My Background (use this to calibrate)
 
 - Programming: Unreal Engine Blueprints (primary), some Godot C#
-- Rust/Bevy: no experience yet — learning Rust and Bevy through this project
-- wgpu: aware of it, haven't written compute shaders yet
-- Shader languages: some Unreal Engine material graph work, tiny bit of
-  HLSL from a tutorial (didn't stick) — treat WGSL as new territory
-- GPU mental model: surface-level understanding, needs building
-- Cellular automata: understand GoL conceptually from watching a video,
-  has not implemented it
+- Rust: learning through this project — can write basic structs, enums,
+  match, impl blocks, Vec operations. Still needs help with ownership/borrowing
+  and trait signatures.
+- wgpu: can follow patterns for pipeline/bind group setup but not yet
+  generating from scratch. Understands compute + render pass flow.
+- WGSL: can write compute shaders with textureLoad/textureStore, loops,
+  conditionals. Still trips on WGSL-specific syntax (var declarations,
+  type casts, for loop syntax) — don't assume transfer from other languages.
+- GPU mental model: solid on threads, workgroups, dispatch, ping-pong buffering
+- Cellular automata: has implemented GoL on the GPU with neighbor counting
+  and birth/death rules
 - Goal: learn Rust, understand GPU compute shaders, falling sand, and
   reaction-diffusion deeply enough to build my own variations from scratch
 
