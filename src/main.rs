@@ -1,5 +1,5 @@
+use iced::wgpu::{self, TextureUsages};
 use iced::widget::shader;
-use iced::widget::shader::wgpu::{self, TextureUsages};
 use rand::Rng;
 use std::time::{Duration, Instant};
 
@@ -34,8 +34,8 @@ enum SeedPattern {
 }
 
 #[derive(Debug)]
-struct ShaderPipeline {
-    pipeline: wgpu::ComputePipeline,
+struct ShaderPipelineInner {
+    compute_pipeline: wgpu::ComputePipeline,
     _texture_a: wgpu::Texture,
     _texture_b: wgpu::Texture,
     _texture_view_a: wgpu::TextureView,
@@ -48,6 +48,12 @@ struct ShaderPipeline {
     _sampler: wgpu::Sampler,
     ping_pong: bool,
     last_processed_tick: Option<Instant>,
+}
+
+#[derive(Debug)]
+struct ShaderPipeline {
+    format: wgpu::TextureFormat,
+    inner: Option<ShaderPipelineInner>,
 }
 
 impl App {
@@ -73,7 +79,8 @@ fn subscription(_app: &App) -> iced::Subscription<Message> {
 }
 
 fn main() -> iced::Result {
-    iced::application("honey-basket", App::update, App::view)
+    iced::application(App::default, App::update, App::view)
+        .title("game-of-life")
         .subscription(subscription)
         .run()
 }
@@ -94,27 +101,40 @@ impl shader::Program<Message> for ColorShader {
     }
 }
 
+impl shader::Pipeline for ShaderPipeline {
+    fn new(_device: &wgpu::Device, _queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
+        Self {
+            format,
+            inner: None,
+        }
+    }
+}
+
 impl shader::Primitive for ColorPrimitive {
+    type Pipeline = ShaderPipeline;
+
     fn prepare(
         &self,
+        pipeline: &mut ShaderPipeline,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        format: wgpu::TextureFormat,
-        storage: &mut shader::Storage,
         bounds: &iced::Rectangle,
         _viewport: &shader::Viewport,
     ) {
-        if !storage.has::<ShaderPipeline>() {
+        if pipeline.inner.is_none() {
             let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: None,
                 source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
             });
-            let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: None,
-                layout: None,
-                module: &shader_module,
-                entry_point: "main",
-            });
+            let compute_pipeline =
+                device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: None,
+                    layout: None,
+                    module: &shader_module,
+                    entry_point: Some("main"),
+                    cache: None,
+                    compilation_options: Default::default(),
+                });
 
             let _texture_a = device.create_texture(&wgpu::TextureDescriptor {
                 label: None,
@@ -152,14 +172,14 @@ impl shader::Primitive for ColorPrimitive {
                 bounds.height as i32,
             );
             queue.write_texture(
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture: &_texture_b,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
                 &data,
-                wgpu::ImageDataLayout {
+                wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(4 * bounds.width as u32),
                     rows_per_image: Some(bounds.height as u32),
@@ -176,7 +196,7 @@ impl shader::Primitive for ColorPrimitive {
 
             let bind_group_a = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
-                layout: &pipeline.get_bind_group_layout(0),
+                layout: &compute_pipeline.get_bind_group_layout(0),
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -190,7 +210,7 @@ impl shader::Primitive for ColorPrimitive {
             });
             let bind_group_b = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
-                layout: &pipeline.get_bind_group_layout(0),
+                layout: &compute_pipeline.get_bind_group_layout(0),
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -213,14 +233,16 @@ impl shader::Primitive for ColorPrimitive {
                 layout: None,
                 vertex: wgpu::VertexState {
                     module: &display_module,
-                    entry_point: "vs",
+                    entry_point: Some("vs"),
                     buffers: &[],
+                    compilation_options: Default::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &display_module,
-                    entry_point: "fs",
+                    entry_point: Some("fs"),
+                    compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: format,
+                        format: pipeline.format,
                         blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
@@ -229,6 +251,7 @@ impl shader::Primitive for ColorPrimitive {
                 depth_stencil: None,
                 multisample: Default::default(),
                 multiview: None,
+                cache: None,
             });
 
             let display_bind_group_a = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -262,8 +285,8 @@ impl shader::Primitive for ColorPrimitive {
             let ping_pong = true;
             let last_processed_tick = None;
 
-            storage.store(ShaderPipeline {
-                pipeline,
+            pipeline.inner = Some(ShaderPipelineInner {
+                compute_pipeline,
                 _texture_a,
                 _texture_b,
                 _texture_view_a,
@@ -278,13 +301,13 @@ impl shader::Primitive for ColorPrimitive {
                 last_processed_tick,
             });
         }
-        let pipeline_ref = storage.get_mut::<ShaderPipeline>().unwrap();
+        let pipeline_ref = pipeline.inner.as_mut().unwrap();
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         {
             if pipeline_ref.last_processed_tick != self.latest_tick {
                 let mut compute_pass =
                     encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-                compute_pass.set_pipeline(&pipeline_ref.pipeline);
+                compute_pass.set_pipeline(&pipeline_ref.compute_pipeline);
                 if pipeline_ref.ping_pong {
                     compute_pass.set_bind_group(0, &pipeline_ref.bind_group_b, &[]);
                     pipeline_ref.ping_pong = false;
@@ -304,15 +327,16 @@ impl shader::Primitive for ColorPrimitive {
     }
     fn render(
         &self,
+        pipeline: &ShaderPipeline,
         encoder: &mut wgpu::CommandEncoder,
-        storage: &shader::Storage,
         target: &wgpu::TextureView,
         _clip_bounds: &iced::Rectangle<u32>,
     ) {
-        let pipeline_ref = storage.get::<ShaderPipeline>().unwrap();
+        let pipeline_ref = pipeline.inner.as_ref().unwrap();
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: target,
+                depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {

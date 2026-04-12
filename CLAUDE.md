@@ -107,12 +107,14 @@ I know something just because it's earlier in the list.
 - Binding resources: textures, samplers, storage buffers, uniforms
 - The `@compute`, `@vertex`, `@fragment` entry point annotations
 
-### Module 3 — Game of Life (IN PROGRESS)
+### Module 3 — Game of Life (COMPLETE)
 - Ping-pong buffering (two textures, read one write the other, swap) ✓
 - Reading neighbor cells ✓
 - Writing the rule ✓
 - Wiring the compute pass in wgpu ✓
-- Still TODO: edge wrapping, simulation speed control, known patterns
+- Edge wrapping (toroidal topology via modulo in WGSL) ✓
+- Simulation speed control (iced::time::every, sim/render decoupling) ✓
+- Known patterns (glider, block, blinker, pulsar via SeedPattern enum) ✓
 
 ### Module 4 — Multi-State Automata
 - Extending GoL rules to more than 2 states
