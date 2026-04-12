@@ -124,7 +124,7 @@ impl shader::Primitive for ColorPrimitive {
         if pipeline.inner.is_none() {
             let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: None,
-                source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(include_str!("brians_brain.wgsl").into()),
             });
             let compute_pipeline =
                 device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -167,7 +167,7 @@ impl shader::Primitive for ColorPrimitive {
                 view_formats: &[],
             });
             let data = generate_seed(
-                SeedPattern::Pulsar,
+                SeedPattern::Random,
                 bounds.width as i32,
                 bounds.height as i32,
             );
