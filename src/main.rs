@@ -24,6 +24,16 @@ struct ColorPrimitive {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
+enum SeedPattern {
+    Random,
+    Glider,
+    Block,
+    Blinker,
+    Pulsar,
+}
+
+#[derive(Debug)]
 struct ShaderPipeline {
     pipeline: wgpu::ComputePipeline,
     _texture_a: wgpu::Texture,
@@ -60,6 +70,28 @@ impl App {
 
 fn subscription(_app: &App) -> iced::Subscription<Message> {
     iced::time::every(Duration::from_millis(100)).map(Message::Tick)
+}
+
+fn main() -> iced::Result {
+    iced::application("honey-basket", App::update, App::view)
+        .subscription(subscription)
+        .run()
+}
+
+impl shader::Program<Message> for ColorShader {
+    type State = ();
+    type Primitive = ColorPrimitive;
+
+    fn draw(
+        &self,
+        _state: &(),
+        _cursor: iced::mouse::Cursor,
+        _bounds: iced::Rectangle,
+    ) -> ColorPrimitive {
+        ColorPrimitive {
+            latest_tick: self.latest_tick,
+        }
+    }
 }
 
 impl shader::Primitive for ColorPrimitive {
@@ -114,15 +146,11 @@ impl shader::Primitive for ColorPrimitive {
                     | TextureUsages::COPY_DST,
                 view_formats: &[],
             });
-            let mut data: Vec<u8> = Vec::new();
-            for _ in 0..((bounds.width * bounds.height) as i32) {
-                let alive = rand::thread_rng().gen_bool(0.2) == true;
-                data.extend_from_slice(if alive {
-                    &[255, 255, 0, 255]
-                } else {
-                    &[0, 0, 0, 255]
-                });
-            }
+            let data = generate_seed(
+                SeedPattern::Pulsar,
+                bounds.width as i32,
+                bounds.height as i32,
+            );
             queue.write_texture(
                 wgpu::ImageCopyTexture {
                     texture: &_texture_b,
@@ -308,24 +336,139 @@ impl shader::Primitive for ColorPrimitive {
     }
 }
 
-impl shader::Program<Message> for ColorShader {
-    type State = ();
-    type Primitive = ColorPrimitive;
-
-    fn draw(
-        &self,
-        _state: &(),
-        _cursor: iced::mouse::Cursor,
-        _bounds: iced::Rectangle,
-    ) -> ColorPrimitive {
-        ColorPrimitive {
-            latest_tick: self.latest_tick,
+fn generate_seed(pattern: SeedPattern, width: i32, height: i32) -> Vec<u8> {
+    match pattern {
+        SeedPattern::Random => {
+            let mut seed: Vec<u8> = Vec::new();
+            for _ in 0..((width * height) as i32) {
+                let alive = rand::thread_rng().gen_bool(0.2) == true;
+                seed.extend_from_slice(if alive {
+                    &[255, 255, 0, 255]
+                } else {
+                    &[0, 0, 0, 255]
+                });
+            }
+            seed
+        }
+        SeedPattern::Glider => {
+            let mut seed: Vec<u8> = Vec::new();
+            for _ in 0..((width * height) as i32) {
+                seed.extend_from_slice(&[0, 0, 0, 255]);
+            }
+            let center_x = width / 2;
+            let center_y = height / 2;
+            let glider_positions = [
+                (center_x + 1, center_y),
+                (center_x + 2, center_y + 1),
+                (center_x, center_y + 2),
+                (center_x + 1, center_y + 2),
+                (center_x + 2, center_y + 2),
+            ];
+            for (x, y) in glider_positions {
+                let index = (y * width + x) as usize * 4;
+                seed[index..index + 4].copy_from_slice(&[255, 255, 0, 255]);
+            }
+            seed
+        }
+        SeedPattern::Block => {
+            let mut seed: Vec<u8> = Vec::new();
+            for _ in 0..((width * height) as i32) {
+                seed.extend_from_slice(&[0, 0, 0, 255]);
+            }
+            let center_x = width / 2;
+            let center_y = height / 2;
+            let block_positions = [
+                (center_x, center_y),
+                (center_x + 1, center_y),
+                (center_x, center_y + 1),
+                (center_x + 1, center_y + 1),
+            ];
+            for (x, y) in block_positions {
+                let index = (y * width + x) as usize * 4;
+                seed[index..index + 4].copy_from_slice(&[255, 255, 0, 255]);
+            }
+            seed
+        }
+        SeedPattern::Blinker => {
+            let mut seed: Vec<u8> = Vec::new();
+            for _ in 0..((width * height) as i32) {
+                seed.extend_from_slice(&[0, 0, 0, 255]);
+            }
+            let center_x = width / 2;
+            let center_y = height / 2;
+            let blinker_positions = [
+                (center_x, center_y),
+                (center_x + 1, center_y),
+                (center_x + 2, center_y),
+            ];
+            for (x, y) in blinker_positions {
+                let index = (y * width + x) as usize * 4;
+                seed[index..index + 4].copy_from_slice(&[255, 255, 0, 255]);
+            }
+            seed
+        }
+        SeedPattern::Pulsar => {
+            let mut seed: Vec<u8> = Vec::new();
+            for _ in 0..((width * height) as i32) {
+                seed.extend_from_slice(&[0, 0, 0, 255]);
+            }
+            let center_x = width / 2;
+            let center_y = height / 2;
+            let pulsar_positions = [
+                (center_x + 2, center_y),
+                (center_x + 3, center_y),
+                (center_x + 4, center_y),
+                (center_x + 8, center_y),
+                (center_x + 9, center_y),
+                (center_x + 10, center_y),
+                (center_x, center_y + 2),
+                (center_x + 5, center_y + 2),
+                (center_x + 7, center_y + 2),
+                (center_x + 12, center_y + 2),
+                (center_x, center_y + 3),
+                (center_x + 5, center_y + 3),
+                (center_x + 7, center_y + 3),
+                (center_x + 12, center_y + 3),
+                (center_x, center_y + 4),
+                (center_x + 5, center_y + 4),
+                (center_x + 7, center_y + 4),
+                (center_x + 12, center_y + 4),
+                (center_x + 2, center_y + 5),
+                (center_x + 3, center_y + 5),
+                (center_x + 4, center_y + 5),
+                (center_x + 8, center_y + 5),
+                (center_x + 9, center_y + 5),
+                (center_x + 10, center_y + 5),
+                (center_x + 2, center_y + 7),
+                (center_x + 3, center_y + 7),
+                (center_x + 4, center_y + 7),
+                (center_x + 8, center_y + 7),
+                (center_x + 9, center_y + 7),
+                (center_x + 10, center_y + 7),
+                (center_x, center_y + 8),
+                (center_x + 5, center_y + 8),
+                (center_x + 7, center_y + 8),
+                (center_x + 12, center_y + 8),
+                (center_x, center_y + 9),
+                (center_x + 5, center_y + 9),
+                (center_x + 7, center_y + 9),
+                (center_x + 12, center_y + 9),
+                (center_x, center_y + 10),
+                (center_x + 5, center_y + 10),
+                (center_x + 7, center_y + 10),
+                (center_x + 12, center_y + 10),
+                (center_x + 2, center_y + 12),
+                (center_x + 3, center_y + 12),
+                (center_x + 4, center_y + 12),
+                (center_x + 8, center_y + 12),
+                (center_x + 9, center_y + 12),
+                (center_x + 10, center_y + 12),
+            ];
+            for (x, y) in pulsar_positions {
+                let index = (y * width + x) as usize * 4;
+                seed[index..index + 4].copy_from_slice(&[255, 255, 0, 255]);
+            }
+            seed
         }
     }
-}
-
-fn main() -> iced::Result {
-    iced::application("honey-basket", App::update, App::view)
-        .subscription(subscription)
-        .run()
 }

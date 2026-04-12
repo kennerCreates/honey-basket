@@ -17,9 +17,9 @@
       vec2( 0,  1),
       vec2( 1,  1),
     );
-
+    var input_size = vec2<i32>(textureDimensions(input));
     for (var i = 0; i < 8; i++) {
-      if (textureLoad(input, vec2<i32>(id.xy) + offsets[i], 0).r > 0.5) {
+      if (textureLoad(input, ((vec2<i32>(id.xy) + offsets[i] + input_size) % input_size), 0).r > 0.5) {
         alive_count += 1;
       }
     }
