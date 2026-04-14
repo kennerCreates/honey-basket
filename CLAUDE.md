@@ -116,10 +116,12 @@ I know something just because it's earlier in the list.
 - Simulation speed control (iced::time::every, sim/render decoupling) ✓
 - Known patterns (glider, block, blinker, pulsar via SeedPattern enum) ✓
 
-### Module 4 — Multi-State Automata
-- Extending GoL rules to more than 2 states
-- Brian's Brain, Wireworld, or similar
-- Handling state as a value (not just on/off)
+### Module 4 — Multi-State Automata (COMPLETE)
+- Extending GoL rules to more than 2 states ✓
+- Brian's Brain (3 states) ✓
+- Wireworld (4 states) ✓
+- Handling state as a value via R channel thresholds ✓
+- SimulationType enum to switch between simulations ✓
 
 ### Module 5 — Falling Sand
 - Non-uniform update order and why it matters

@@ -31,6 +31,15 @@ enum SeedPattern {
     Block,
     Blinker,
     Pulsar,
+    WireLoop,
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+enum SimulationType {
+    GameOfLife,
+    BriansBrain,
+    Wireworld,
 }
 
 #[derive(Debug)]
@@ -122,9 +131,15 @@ impl shader::Primitive for ColorPrimitive {
         _viewport: &shader::Viewport,
     ) {
         if pipeline.inner.is_none() {
+            let sim_type = SimulationType::Wireworld;
+            let shader_source = match sim_type {
+                SimulationType::GameOfLife => include_str!("game_of_life.wgsl"),
+                SimulationType::BriansBrain => include_str!("brians_brain.wgsl"),
+                SimulationType::Wireworld => include_str!("wireworld.wgsl"),
+            };
             let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: None,
-                source: wgpu::ShaderSource::Wgsl(include_str!("brians_brain.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(shader_source.into()),
             });
             let compute_pipeline =
                 device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -167,7 +182,7 @@ impl shader::Primitive for ColorPrimitive {
                 view_formats: &[],
             });
             let data = generate_seed(
-                SeedPattern::Random,
+                SeedPattern::WireLoop,
                 bounds.width as i32,
                 bounds.height as i32,
             );
@@ -491,6 +506,55 @@ fn generate_seed(pattern: SeedPattern, width: i32, height: i32) -> Vec<u8> {
             for (x, y) in pulsar_positions {
                 let index = (y * width + x) as usize * 4;
                 seed[index..index + 4].copy_from_slice(&[255, 255, 0, 255]);
+            }
+            seed
+        }
+        SeedPattern::WireLoop => {
+            let mut seed: Vec<u8> = Vec::new();
+            for _ in 0..((width * height) as i32) {
+                seed.extend_from_slice(&[0, 0, 0, 255]);
+            }
+            let center_x = width / 2;
+            let center_y = height / 2;
+            let wire_positions = [
+                (center_x, center_y),
+                (center_x + 1, center_y),
+                (center_x + 2, center_y),
+                (center_x + 3, center_y),
+                (center_x + 4, center_y),
+                (center_x + 5, center_y),
+                (center_x + 6, center_y),
+                (center_x + 7, center_y),
+                (center_x + 8, center_y),
+                (center_x + 9, center_y),
+                (center_x, center_y + 1),
+                (center_x + 9, center_y + 1),
+                (center_x, center_y + 2),
+                (center_x + 9, center_y + 2),
+                (center_x, center_y + 3),
+                (center_x + 9, center_y + 3),
+                (center_x, center_y),
+                (center_x + 1, center_y + 4),
+                (center_x + 2, center_y + 4),
+                (center_x + 3, center_y + 4),
+                (center_x + 4, center_y + 4),
+                (center_x + 7, center_y + 4),
+                (center_x + 8, center_y + 4),
+                (center_x + 9, center_y + 4),
+            ];
+            for (x, y) in wire_positions {
+                let index = (y * width + x) as usize * 4;
+                seed[index..index + 4].copy_from_slice(&[255, 128, 0, 255]);
+            }
+            let head_positions = [(center_x + 5, center_y + 4)];
+            for (x, y) in head_positions {
+                let index = (y * width + x) as usize * 4;
+                seed[index..index + 4].copy_from_slice(&[153, 153, 0, 255]);
+            }
+            let tail_positions = [(center_x + 6, center_y + 4)];
+            for (x, y) in tail_positions {
+                let index = (y * width + x) as usize * 4;
+                seed[index..index + 4].copy_from_slice(&[76, 76, 0, 255]);
             }
             seed
         }
