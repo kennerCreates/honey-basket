@@ -1,7 +1,25 @@
-use iced::wgpu::{self, TextureUsages};
-use iced::widget::shader;
+use iced::Element;
+use iced::Length::Fill;
+use iced::Rectangle;
+use iced::Subscription;
+use iced::application;
+use iced::mouse;
+use iced::time;
+use iced::widget;
 use rand::Rng;
 use std::time::{Duration, Instant};
+use wgpu::ComputePipeline;
+use wgpu::TextureUsages;
+use wgpu::{
+    BindGroup, BindGroupDescriptor, BindGroupEntry, BindingResource, Color, ColorTargetState,
+    ColorWrites, CommandEncoder, CommandEncoderDescriptor, ComputePassDescriptor,
+    ComputePipelineDescriptor, Device, Extent3d, FragmentState, LoadOp, Operations, Origin3d,
+    Queue, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
+    RenderPipelineDescriptor, Sampler, SamplerDescriptor, ShaderModuleDescriptor, ShaderSource,
+    StoreOp, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureAspect, TextureDimension,
+    TextureFormat, TextureView, TextureViewDescriptor, VertexState,
+};
+use widget::shader;
 
 #[derive(Default)]
 struct App {
@@ -44,24 +62,24 @@ enum SimulationType {
 
 #[derive(Debug)]
 struct ShaderPipelineInner {
-    compute_pipeline: wgpu::ComputePipeline,
-    _texture_a: wgpu::Texture,
-    _texture_b: wgpu::Texture,
-    _texture_view_a: wgpu::TextureView,
-    _texture_view_b: wgpu::TextureView,
-    bind_group_a: wgpu::BindGroup,
-    bind_group_b: wgpu::BindGroup,
-    display_bind_group_a: wgpu::BindGroup,
-    display_bind_group_b: wgpu::BindGroup,
-    render_pipeline: wgpu::RenderPipeline,
-    _sampler: wgpu::Sampler,
+    compute_pipeline: ComputePipeline,
+    _texture_a: Texture,
+    _texture_b: Texture,
+    _texture_view_a: TextureView,
+    _texture_view_b: TextureView,
+    bind_group_a: BindGroup,
+    bind_group_b: BindGroup,
+    display_bind_group_a: BindGroup,
+    display_bind_group_b: BindGroup,
+    render_pipeline: RenderPipeline,
+    _sampler: Sampler,
     ping_pong: bool,
     last_processed_tick: Option<Instant>,
 }
 
 #[derive(Debug)]
 struct ShaderPipeline {
-    format: wgpu::TextureFormat,
+    format: TextureFormat,
     inner: Option<ShaderPipelineInner>,
 }
 
@@ -73,22 +91,22 @@ impl App {
             }
         }
     }
-    fn view(&self) -> iced::Element<'_, Message> {
+    fn view(&self) -> Element<'_, Message> {
         shader(ColorShader {
             latest_tick: self.latest_tick,
         })
-        .width(iced::Fill)
-        .height(iced::Fill)
+        .width(Fill)
+        .height(Fill)
         .into()
     }
 }
 
-fn subscription(_app: &App) -> iced::Subscription<Message> {
-    iced::time::every(Duration::from_millis(100)).map(Message::Tick)
+fn subscription(_app: &App) -> Subscription<Message> {
+    time::every(Duration::from_millis(100)).map(Message::Tick)
 }
 
 fn main() -> iced::Result {
-    iced::application(App::default, App::update, App::view)
+    application(App::default, App::update, App::view)
         .title("game-of-life")
         .subscription(subscription)
         .run()
@@ -98,12 +116,7 @@ impl shader::Program<Message> for ColorShader {
     type State = ();
     type Primitive = ColorPrimitive;
 
-    fn draw(
-        &self,
-        _state: &(),
-        _cursor: iced::mouse::Cursor,
-        _bounds: iced::Rectangle,
-    ) -> ColorPrimitive {
+    fn draw(&self, _state: &(), _cursor: mouse::Cursor, _bounds: Rectangle) -> ColorPrimitive {
         ColorPrimitive {
             latest_tick: self.latest_tick,
         }
@@ -111,7 +124,7 @@ impl shader::Program<Message> for ColorShader {
 }
 
 impl shader::Pipeline for ShaderPipeline {
-    fn new(_device: &wgpu::Device, _queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
+    fn new(_device: &Device, _queue: &Queue, format: TextureFormat) -> Self {
         Self {
             format,
             inner: None,
@@ -125,9 +138,9 @@ impl shader::Primitive for ColorPrimitive {
     fn prepare(
         &self,
         pipeline: &mut ShaderPipeline,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        bounds: &iced::Rectangle,
+        device: &Device,
+        queue: &Queue,
+        bounds: &Rectangle,
         _viewport: &shader::Viewport,
     ) {
         if pipeline.inner.is_none() {
@@ -137,45 +150,44 @@ impl shader::Primitive for ColorPrimitive {
                 SimulationType::BriansBrain => include_str!("brians_brain.wgsl"),
                 SimulationType::Wireworld => include_str!("wireworld.wgsl"),
             };
-            let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            let shader_module = device.create_shader_module(ShaderModuleDescriptor {
                 label: None,
-                source: wgpu::ShaderSource::Wgsl(shader_source.into()),
+                source: ShaderSource::Wgsl(shader_source.into()),
             });
-            let compute_pipeline =
-                device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: None,
-                    layout: None,
-                    module: &shader_module,
-                    entry_point: Some("main"),
-                    cache: None,
-                    compilation_options: Default::default(),
-                });
+            let compute_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: None,
+                layout: None,
+                module: &shader_module,
+                entry_point: Some("main"),
+                cache: None,
+                compilation_options: Default::default(),
+            });
 
             let _texture_a = device.create_texture(&wgpu::TextureDescriptor {
                 label: None,
-                size: wgpu::Extent3d {
+                size: Extent3d {
                     width: bounds.width as u32,
                     height: bounds.height as u32,
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
                 sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Rgba8Unorm,
                 usage: TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             });
             let _texture_b = device.create_texture(&wgpu::TextureDescriptor {
                 label: None,
-                size: wgpu::Extent3d {
+                size: Extent3d {
                     width: bounds.width as u32,
                     height: bounds.height as u32,
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
                 sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Rgba8Unorm,
                 usage: TextureUsages::STORAGE_BINDING
                     | TextureUsages::TEXTURE_BINDING
                     | TextureUsages::COPY_DST,
@@ -187,79 +199,79 @@ impl shader::Primitive for ColorPrimitive {
                 bounds.height as i32,
             );
             queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
+                TexelCopyTextureInfo {
                     texture: &_texture_b,
                     mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
+                    origin: Origin3d::ZERO,
+                    aspect: TextureAspect::All,
                 },
                 &data,
-                wgpu::TexelCopyBufferLayout {
+                TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(4 * bounds.width as u32),
                     rows_per_image: Some(bounds.height as u32),
                 },
-                wgpu::Extent3d {
+                Extent3d {
                     width: bounds.width as u32,
                     height: bounds.height as u32,
                     depth_or_array_layers: 1,
                 },
             );
 
-            let _texture_view_a = _texture_a.create_view(&wgpu::TextureViewDescriptor::default());
-            let _texture_view_b = _texture_b.create_view(&wgpu::TextureViewDescriptor::default());
+            let _texture_view_a = _texture_a.create_view(&TextureViewDescriptor::default());
+            let _texture_view_b = _texture_b.create_view(&TextureViewDescriptor::default());
 
-            let bind_group_a = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let bind_group_a = device.create_bind_group(&BindGroupDescriptor {
                 label: None,
                 layout: &compute_pipeline.get_bind_group_layout(0),
                 entries: &[
-                    wgpu::BindGroupEntry {
+                    BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&_texture_view_a),
+                        resource: BindingResource::TextureView(&_texture_view_a),
                     },
-                    wgpu::BindGroupEntry {
+                    BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&_texture_view_b),
+                        resource: BindingResource::TextureView(&_texture_view_b),
                     },
                 ],
             });
-            let bind_group_b = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let bind_group_b = device.create_bind_group(&BindGroupDescriptor {
                 label: None,
                 layout: &compute_pipeline.get_bind_group_layout(0),
                 entries: &[
-                    wgpu::BindGroupEntry {
+                    BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&_texture_view_b),
+                        resource: BindingResource::TextureView(&_texture_view_b),
                     },
-                    wgpu::BindGroupEntry {
+                    BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&_texture_view_a),
+                        resource: BindingResource::TextureView(&_texture_view_a),
                     },
                 ],
             });
 
-            let _sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
-            let display_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            let _sampler = device.create_sampler(&SamplerDescriptor::default());
+            let display_module = device.create_shader_module(ShaderModuleDescriptor {
                 label: None,
-                source: wgpu::ShaderSource::Wgsl(include_str!("display.wgsl").into()),
+                source: ShaderSource::Wgsl(include_str!("display.wgsl").into()),
             });
-            let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            let render_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
                 label: None,
                 layout: None,
-                vertex: wgpu::VertexState {
+                vertex: VertexState {
                     module: &display_module,
                     entry_point: Some("vs"),
                     buffers: &[],
                     compilation_options: Default::default(),
                 },
-                fragment: Some(wgpu::FragmentState {
+                fragment: Some(FragmentState {
                     module: &display_module,
                     entry_point: Some("fs"),
                     compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
+                    targets: &[Some(ColorTargetState {
                         format: pipeline.format,
                         blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
+                        write_mask: ColorWrites::ALL,
                     })],
                 }),
                 primitive: Default::default(),
@@ -269,31 +281,31 @@ impl shader::Primitive for ColorPrimitive {
                 cache: None,
             });
 
-            let display_bind_group_a = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let display_bind_group_a = device.create_bind_group(&BindGroupDescriptor {
                 label: None,
                 layout: &render_pipeline.get_bind_group_layout(0),
                 entries: &[
-                    wgpu::BindGroupEntry {
+                    BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&_texture_view_a),
+                        resource: BindingResource::TextureView(&_texture_view_a),
                     },
-                    wgpu::BindGroupEntry {
+                    BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&_sampler),
+                        resource: BindingResource::Sampler(&_sampler),
                     },
                 ],
             });
-            let display_bind_group_b = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let display_bind_group_b = device.create_bind_group(&BindGroupDescriptor {
                 label: None,
                 layout: &render_pipeline.get_bind_group_layout(0),
                 entries: &[
-                    wgpu::BindGroupEntry {
+                    BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&_texture_view_b),
+                        resource: BindingResource::TextureView(&_texture_view_b),
                     },
-                    wgpu::BindGroupEntry {
+                    BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&_sampler),
+                        resource: BindingResource::Sampler(&_sampler),
                     },
                 ],
             });
@@ -317,11 +329,11 @@ impl shader::Primitive for ColorPrimitive {
             });
         }
         let pipeline_ref = pipeline.inner.as_mut().unwrap();
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor::default());
         {
             if pipeline_ref.last_processed_tick != self.latest_tick {
                 let mut compute_pass =
-                    encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+                    encoder.begin_compute_pass(&ComputePassDescriptor::default());
                 compute_pass.set_pipeline(&pipeline_ref.compute_pipeline);
                 if pipeline_ref.ping_pong {
                     compute_pass.set_bind_group(0, &pipeline_ref.bind_group_b, &[]);
@@ -343,24 +355,24 @@ impl shader::Primitive for ColorPrimitive {
     fn render(
         &self,
         pipeline: &ShaderPipeline,
-        encoder: &mut wgpu::CommandEncoder,
-        target: &wgpu::TextureView,
-        _clip_bounds: &iced::Rectangle<u32>,
+        encoder: &mut CommandEncoder,
+        target: &TextureView,
+        _clip_bounds: &Rectangle<u32>,
     ) {
         let pipeline_ref = pipeline.inner.as_ref().unwrap();
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+        let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            color_attachments: &[Some(RenderPassColorAttachment {
                 view: target,
                 depth_slice: None,
                 resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                ops: Operations {
+                    load: LoadOp::Clear(Color {
                         r: 0.0,
                         g: 0.0,
                         b: 0.0,
                         a: 1.0,
                     }),
-                    store: wgpu::StoreOp::Store,
+                    store: StoreOp::Store,
                 },
             })],
             ..Default::default()

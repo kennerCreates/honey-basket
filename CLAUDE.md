@@ -123,22 +123,106 @@ I know something just because it's earlier in the list.
 - Handling state as a value via R channel thresholds ✓
 - SimulationType enum to switch between simulations ✓
 
-### Module 5 — Falling Sand
+### Module 5 — Interactive Input (NEXT)
+The whole curriculum benefits from being able to paint into the grid, so
+this module comes before any new simulation work. Every subsequent module
+assumes painting exists.
+
+- Capturing mouse events at the window/app level and getting them to the
+  right place in the update loop
+- Coordinate-space conversion: screen pixels → world coords → grid cell coords
+- Getting paint data from CPU to GPU (uniform vs storage buffer tradeoffs
+  for mouse position, brush state, paint target)
+- Painting a single cell on click
+- State selection: the UI and data model for choosing which state to paint,
+  adapting per simulation (GoL has 2, Brian's Brain has 3, Wireworld has 4,
+  future simulations will have continuous values)
+- Solid circular brush with adjustable radius
+- Randomized brush: fills a circle with random states at adjustable density,
+  with its own radius
+- Stamp tool: reusing the existing SeedPattern enum (glider, block, blinker,
+  pulsar, and whatever later simulations add)
+- Clear canvas / erase mode (erase is just "paint the empty state")
+- Continuous painting while dragging (not just discrete clicks)
+- Paint-while-running vs pause-while-painting as a user-facing toggle
+
+### Module 6 — Falling Sand
 - Non-uniform update order and why it matters
 - Directional rules (gravity = check below before beside)
 - Material type dispatch: how to handle sand vs water vs fire differently
 - Randomized stepping to avoid update artifacts
+- Multiple materials interacting (water + sand, fire + flammable materials)
 
-### Module 6 — Reaction-Diffusion
-- Gray-Scott model
-- Continuous values instead of discrete states
-- Laplacian kernel (what it is, how to apply it in a shader)
-- Tuning F and K parameters
+### Module 7 — Reaction-Diffusion (Gray-Scott)
+- Continuous values instead of discrete states — what changes in the shader
+- Multi-channel state (U and V chemical concentrations) in a single texture
+- The Laplacian kernel: what it is mathematically, how it's implemented as
+  a neighbor stencil in a shader
+- The Gray-Scott update equations and what each term means
+- Tuning F (feed) and K (kill) parameters to get different pattern regimes
+- Timestep and numerical stability (multiple sim steps per rendered frame)
+- Why continuous-state CA produces different emergent aesthetics than
+  discrete-state CA
 
-### Module 7 — Going Further
-- Fluid simulation basics (Navier-Stokes overview)
-- Combining simulations
-- Performance: profiling GPU workloads
+### Module 8 — Multi-Chemical Reaction-Diffusion
+- Extending Gray-Scott from 2 chemicals to N chemicals
+- Designing an interaction matrix: who catalyzes who, who consumes who
+- Predator-prey-like dynamics from purely chemical rules
+- Multi-channel texture layout (4 chemicals fit in RGBA; more needs
+  multiple textures or storage buffers)
+- Designing your own rules and developing an intuition for what kinds of
+  interaction matrices produce interesting behavior vs dead or chaotic
+  outputs
+
+### Module 9 — SmoothLife and Lenia
+This is the big payoff module. Continuous-state CA with smooth convolution
+kernels — the direct path to organic, creature-like emergent behavior
+without any neural network.
+
+- SmoothLife: continuous-valued Life with inner-disk and outer-annulus
+  averaging
+- The shift from "sum of 8 neighbors" to "weighted average over a disk" —
+  what this does to the dynamics
+- Radial kernel construction and sampling
+- Workgroup shared memory for efficient kernel convolution (loading tiles
+  once per workgroup instead of resampling per thread)
+- Lenia: generalizing to arbitrary radial kernels and smooth growth functions
+- Parameter tuning and the "creature zoo" — finding stable emergent patterns
+- Why this class of CA produces creature-like behavior (gliders that look
+  like organisms, patterns that bud and split)
+
+### Module 10 — Multi-Channel Lenia and Custom CA Design
+Where the petri-dish-game substrate actually takes shape.
+
+- Multi-channel Lenia: multiple fields interacting through cross-channel
+  kernels
+- "Species" as different channels with different kernels and growth functions
+- Designing inter-species dynamics: predation, symbiosis, competition
+- Adding per-cell state beyond the chemical fields: age, energy, genetic
+  parameters
+- Simple mutation and inheritance rules for evolving CA (offspring inherit
+  parameters with small perturbations)
+- Reasoning about what rules produce what emergent behaviors — the craft
+  of CA design rather than the mechanics
+
+### Module 11 — Game Scaffolding
+Turning the simulation substrate into a playable petri-dish game. This is
+mostly a design and systems module, not new shader work.
+
+- Extending the Module 5 input layer for gameplay (tools beyond raw painting)
+- Save/load world state
+- Parameter tweaking UI for live rule adjustment
+- Win/loss conditions, goals, progression — what makes a petri-dish game
+  a *game* rather than just a simulation toy
+- World isolation (separate petri dishes) and how that shapes the design
+- Performance: profiling GPU workloads, spotting bottlenecks
+
+### Possible Future Work (not planned)
+- Fluid simulation via Stable Fluids (Navier-Stokes on a grid) — powerful
+  but unlocks a different genre than the petri-dish direction
+- Neural Cellular Automata — revisit only if Module 10 reveals a specific
+  behavior that seems hand-unspecifiable and worth the training pipeline
+  complexity
 
 ---
 
@@ -175,10 +259,22 @@ I know something just because it's earlier in the list.
   conditionals. Still trips on WGSL-specific syntax (var declarations,
   type casts, for loop syntax) — don't assume transfer from other languages.
 - GPU mental model: solid on threads, workgroups, dispatch, ping-pong buffering
-- Cellular automata: has implemented GoL on the GPU with neighbor counting
-  and birth/death rules
-- Goal: learn Rust, understand GPU compute shaders, falling sand, and
-  reaction-diffusion deeply enough to build my own variations from scratch
+- Cellular automata: has implemented GoL (2-state), Brian's Brain (3-state),
+  and Wireworld (4-state) on the GPU. Comfortable with neighbor counting,
+  birth/death/transition rules, and using a SimulationType enum to switch
+  between rulesets at runtime. Handles state as values in the R channel with
+  thresholding.
+- iced / UI: has wired up simulation speed control with iced::time::every
+  and decoupled sim-tick from render-frame. Has not yet handled mouse input
+  or per-frame CPU→GPU data outside of initial seeding.
+- Has *not* yet worked with: mouse input pipelines, continuous-state (float)
+  CA, Laplacian kernels, convolution-based CA, multi-channel fields beyond
+  a single R channel, or uniforms that change per frame.
+- Goal: learn Rust and GPU compute shaders deeply enough to build a
+  petri-dish-style game around emergent cellular automaton behavior, with
+  the full path running through falling sand, reaction-diffusion, and
+  Lenia-style continuous CA as the substrate for the final game. All rules
+  handwritten — no neural network training in the current plan.
 
 ---
 
