@@ -1,3 +1,5 @@
+use bytemuck::bytes_of;
+use bytemuck::{Pod, Zeroable};
 use iced::Element;
 use iced::Length::Fill;
 use iced::Rectangle;
@@ -11,10 +13,10 @@ use std::time::{Duration, Instant};
 use wgpu::ComputePipeline;
 use wgpu::TextureUsages;
 use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupEntry, BindingResource, Color, ColorTargetState,
-    ColorWrites, CommandEncoder, CommandEncoderDescriptor, ComputePassDescriptor,
-    ComputePipelineDescriptor, Device, Extent3d, FragmentState, LoadOp, Operations, Origin3d,
-    Queue, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
+    BindGroup, BindGroupDescriptor, BindGroupEntry, BindingResource, Buffer, BufferDescriptor,
+    BufferUsages, Color, ColorTargetState, ColorWrites, CommandEncoder, CommandEncoderDescriptor,
+    ComputePassDescriptor, ComputePipelineDescriptor, Device, Extent3d, FragmentState, LoadOp,
+    Operations, Origin3d, Queue, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
     RenderPipelineDescriptor, Sampler, SamplerDescriptor, ShaderModuleDescriptor, ShaderSource,
     StoreOp, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureAspect, TextureDimension,
     TextureFormat, TextureView, TextureViewDescriptor, VertexState,
@@ -69,6 +71,7 @@ struct ShaderPipelineInner {
     _texture_view_b: TextureView,
     bind_group_a: BindGroup,
     bind_group_b: BindGroup,
+    uniform_buffer: Buffer,
     display_bind_group_a: BindGroup,
     display_bind_group_b: BindGroup,
     render_pipeline: RenderPipeline,
@@ -81,6 +84,18 @@ struct ShaderPipelineInner {
 struct ShaderPipeline {
     format: TextureFormat,
     inner: Option<ShaderPipelineInner>,
+}
+
+const SIM_WIDTH: u32 = 640;
+const SIM_HEIGHT: u32 = 360;
+
+#[repr(C)]
+#[derive(Pod, Zeroable, Copy, Clone)]
+struct Uniforms {
+    width: f32,
+    height: f32,
+    sim_width: f32,
+    sim_height: f32,
 }
 
 impl App {
@@ -166,8 +181,8 @@ impl shader::Primitive for ColorPrimitive {
             let _texture_a = device.create_texture(&wgpu::TextureDescriptor {
                 label: None,
                 size: Extent3d {
-                    width: bounds.width as u32,
-                    height: bounds.height as u32,
+                    width: SIM_WIDTH,
+                    height: SIM_HEIGHT,
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
@@ -180,8 +195,8 @@ impl shader::Primitive for ColorPrimitive {
             let _texture_b = device.create_texture(&wgpu::TextureDescriptor {
                 label: None,
                 size: Extent3d {
-                    width: bounds.width as u32,
-                    height: bounds.height as u32,
+                    width: SIM_WIDTH,
+                    height: SIM_HEIGHT,
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
@@ -193,11 +208,7 @@ impl shader::Primitive for ColorPrimitive {
                     | TextureUsages::COPY_DST,
                 view_formats: &[],
             });
-            let data = generate_seed(
-                SeedPattern::WireLoop,
-                bounds.width as i32,
-                bounds.height as i32,
-            );
+            let data = generate_seed(SeedPattern::WireLoop, SIM_WIDTH as i32, SIM_HEIGHT as i32);
             queue.write_texture(
                 TexelCopyTextureInfo {
                     texture: &_texture_b,
@@ -208,12 +219,12 @@ impl shader::Primitive for ColorPrimitive {
                 &data,
                 TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(4 * bounds.width as u32),
-                    rows_per_image: Some(bounds.height as u32),
+                    bytes_per_row: Some(4 * SIM_WIDTH),
+                    rows_per_image: Some(SIM_HEIGHT),
                 },
                 Extent3d {
-                    width: bounds.width as u32,
-                    height: bounds.height as u32,
+                    width: SIM_WIDTH,
+                    height: SIM_HEIGHT,
                     depth_or_array_layers: 1,
                 },
             );
@@ -249,7 +260,6 @@ impl shader::Primitive for ColorPrimitive {
                     },
                 ],
             });
-
             let _sampler = device.create_sampler(&SamplerDescriptor::default());
             let display_module = device.create_shader_module(ShaderModuleDescriptor {
                 label: None,
@@ -280,7 +290,12 @@ impl shader::Primitive for ColorPrimitive {
                 multiview: None,
                 cache: None,
             });
-
+            let uniform_buffer = device.create_buffer(&BufferDescriptor {
+                label: None,
+                size: std::mem::size_of::<Uniforms>() as u64,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
             let display_bind_group_a = device.create_bind_group(&BindGroupDescriptor {
                 label: None,
                 layout: &render_pipeline.get_bind_group_layout(0),
@@ -292,6 +307,10 @@ impl shader::Primitive for ColorPrimitive {
                     BindGroupEntry {
                         binding: 1,
                         resource: BindingResource::Sampler(&_sampler),
+                    },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: uniform_buffer.as_entire_binding(),
                     },
                 ],
             });
@@ -307,6 +326,10 @@ impl shader::Primitive for ColorPrimitive {
                         binding: 1,
                         resource: BindingResource::Sampler(&_sampler),
                     },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: uniform_buffer.as_entire_binding(),
+                    },
                 ],
             });
             let ping_pong = true;
@@ -320,6 +343,7 @@ impl shader::Primitive for ColorPrimitive {
                 _texture_view_b,
                 bind_group_a,
                 bind_group_b,
+                uniform_buffer,
                 display_bind_group_a,
                 display_bind_group_b,
                 render_pipeline,
@@ -329,6 +353,17 @@ impl shader::Primitive for ColorPrimitive {
             });
         }
         let pipeline_ref = pipeline.inner.as_mut().unwrap();
+        let uniforms = Uniforms {
+            width: bounds.width,
+            height: bounds.height,
+            sim_width: SIM_WIDTH as f32,
+            sim_height: SIM_HEIGHT as f32,
+        };
+        queue.write_buffer(
+            &pipeline_ref.uniform_buffer,
+            0,
+            bytemuck::bytes_of(&uniforms),
+        );
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor::default());
         {
             if pipeline_ref.last_processed_tick != self.latest_tick {
@@ -343,8 +378,8 @@ impl shader::Primitive for ColorPrimitive {
                     pipeline_ref.ping_pong = true;
                 }
                 compute_pass.dispatch_workgroups(
-                    (bounds.width / 8.0) as u32,
-                    (bounds.height / 8.0) as u32,
+                    (SIM_WIDTH as f32 / 8.0) as u32,
+                    (SIM_HEIGHT as f32 / 8.0) as u32,
                     1,
                 );
                 pipeline_ref.last_processed_tick = self.latest_tick;
