@@ -1,16 +1,11 @@
 use bytemuck::{Pod, Zeroable};
-use iced::Element;
-use iced::Event;
-use iced::Length::Fill;
-use iced::Rectangle;
-use iced::Subscription;
+use iced::{Element, Event, Length::Fill, Rectangle, Subscription};
 use iced::application;
 use iced::mouse;
-use iced::mouse::Button;
-use iced::mouse::Cursor;
+use iced::widget::shader;
+use iced::mouse::{Button, Cursor};
 use iced::time;
-use iced::widget;
-use iced::widget::Action;
+use iced::widget::{Action, button, column, row, text};
 use std::time::{Duration, Instant};
 use wgpu::ComputePipeline;
 use wgpu::TextureUsages;
@@ -23,22 +18,64 @@ use wgpu::{
     StoreOp, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureAspect, TextureDimension,
     TextureFormat, TextureView, TextureViewDescriptor, VertexState,
 };
-use widget::shader;
 
 #[derive(Default)]
 struct App {
     latest_tick: Option<Instant>,
     latest_paint: Option<(Instant, Vec<(u32, u32)>)>,
-}
-
-#[derive(Debug)]
-enum Message {
-    Tick(Instant),
-    CellsPainted { drag_id: Instant, cells: Vec<(u32, u32)> },
+    sim_type: SimulationType,
+    selected_state_index: usize,
+    paused: bool,
 }
 
 const SIM_WIDTH: u32 = 640;
 const SIM_HEIGHT: u32 = 360;
+
+#[derive(Debug, Clone)]
+enum Message {
+    Tick(Instant),
+    CellsPainted { drag_id: Instant, cells: Vec<(u32, u32)> },
+    SelectState(usize),
+    TogglePause,
+}
+
+#[derive(Debug)]
+struct ColorShader {
+    latest_tick: Option<Instant>,
+    latest_paint: Option<(Instant, Vec<(u32, u32)>)>,
+    sim_type: SimulationType,
+    paint_color: [u8; 4],
+}
+
+#[derive(Debug)]
+struct ColorPrimitive {
+    latest_tick: Option<Instant>,
+    latest_paint: Option<(Instant, Vec<(u32, u32)>)>,
+    sim_type: SimulationType,
+    paint_color: [u8; 4],
+}
+
+#[derive(Default)]
+struct DragState {
+    is_dragging: bool,
+    last_cell: Option<(u32, u32)>,
+    drag_id: Option<Instant>,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+#[allow(dead_code)]
+enum SimulationType {
+    #[default]
+    GameOfLife,
+    BriansBrain,
+    Wireworld,
+}
+
+#[derive(Default)]
+struct CellState {
+    name: &'static str,
+    color: [u8; 4],
+}
 
 #[repr(C)]
 #[derive(Pod, Zeroable, Copy, Clone)]
@@ -65,21 +102,64 @@ impl App {
                     }
                 }
             }
+            Message::SelectState(n) => {
+                self.selected_state_index = n;
+            }
+            Message::TogglePause => {
+                self.paused = !self.paused;
+            }
         }
     }
     fn view(&self) -> Element<'_, Message> {
-        shader(ColorShader {
+        let pause_text = if self.paused { "Resume" } else { "Pause" };
+        let pause_button = button(text(pause_text))
+            .padding(8)
+            .on_press(Message::TogglePause)
+            .style(move |_theme, _status| button::Style {
+                background: Some(iced::Background::Color(iced::Color::BLACK)),
+                text_color: iced::Color::WHITE,
+                ..button::Style::default()
+            });
+
+        let states = self.sim_type.states();
+        let buttons = row(
+            states.iter().enumerate().map(|(i, s)| {
+                let color = s.color;
+                button(text(s.name))
+                    .padding(8)
+                    .on_press(Message::SelectState(i))
+                    .style(move |_theme, _status| button::Style {
+                        background: Some(iced::Background::Color(iced::Color::from_rgb8(color[0], color[1], color[2]))),
+                        text_color: iced::Color::from_rgb8(255 - color[0], 255 - color[1], 255 - color[2]),
+                        border: iced::Border {
+                            color: iced::Color::from_rgb8(color[0], color[1], color[2]),
+                            width: 3.0,
+                            radius: 4.0.into(),
+                        },
+                        ..button::Style::default()
+                    })
+                    .into()
+            })
+        )
+        .push(pause_button);
+        let canvas = shader(ColorShader {
             latest_tick: self.latest_tick,
             latest_paint: self.latest_paint.clone(),
+            sim_type: self.sim_type,
+            paint_color: self.sim_type.states()[self.selected_state_index].color
         })
         .width(Fill)
-        .height(Fill)
-        .into()
+        .height(Fill);
+        column![buttons, canvas].into()
     }
 }
 
-fn subscription(_app: &App) -> Subscription<Message> {
-    time::every(Duration::from_millis(100)).map(Message::Tick)
+fn subscription(app: &App) -> Subscription<Message> {
+    if app.paused {
+        Subscription::none()
+    } else {
+        time::every(Duration::from_millis(100)).map(Message::Tick)
+    }
 }
 
 fn main() -> iced::Result {
@@ -87,6 +167,28 @@ fn main() -> iced::Result {
         .title("game-of-life")
         .subscription(subscription)
         .run()
+}
+
+impl SimulationType {
+    fn states(&self) -> &'static [CellState] {
+        match self {
+            SimulationType::GameOfLife => &[
+                CellState { name: "Dead", color: [0, 0, 0, 255] },
+                CellState { name: "Alive", color: [255, 255, 0, 255] },
+            ],
+            SimulationType::BriansBrain => &[
+                CellState { name: "Dead", color: [0, 0, 0, 255] },
+                CellState { name: "Alive", color: [255, 255, 128, 255] },
+                CellState { name: "Dying", color: [128, 255, 128, 255] },
+            ],
+            SimulationType::Wireworld => &[
+                CellState { name: "Empty", color: [0, 0, 0, 255] },
+                CellState { name: "Wire", color: [255, 128, 0, 255] },
+                CellState { name: "Head", color: [153, 153, 0, 255] },
+                CellState { name: "Tail", color: [76, 76, 255, 255] },
+            ],
+        }
+    }
 }
 
 fn cursor_to_cell(cursor: Cursor, bounds: Rectangle) -> Option<(u32, u32)> {
@@ -116,24 +218,6 @@ fn cursor_to_cell(cursor: Cursor, bounds: Rectangle) -> Option<(u32, u32)> {
         None => None,
     }
 
-}
-#[derive(Debug)]
-struct ColorShader {
-    latest_tick: Option<Instant>,
-    latest_paint: Option<(Instant, Vec<(u32, u32)>)>,
-}
-
-#[derive(Debug)]
-struct ColorPrimitive {
-    latest_tick: Option<Instant>,
-    latest_paint: Option<(Instant, Vec<(u32, u32)>)>,
-}
-
-#[derive(Default)]
-struct DragState {
-    is_dragging: bool,
-    last_cell: Option<(u32, u32)>,
-    drag_id: Option<Instant>,
 }
 
 fn plot_drag_line(a: (u32, u32), b: (u32, u32)) -> Vec<(u32, u32)> {
@@ -166,49 +250,6 @@ fn plot_drag_line(a: (u32, u32), b: (u32, u32)) -> Vec<(u32, u32)> {
     cells
 }
 
-#[test]
-fn test_plot_drag_line() {
-    let cells = plot_drag_line((0, 0), (5, 3));
-    assert_eq!(cells, vec![(0, 0), (1, 1), (2, 1), (3, 2), (4, 2), (5, 3)]);
-}
-#[test]
-fn test_first_cell_plot_drag_line() {
-    let cells = plot_drag_line((0, 0), (5, 3));
-    assert_eq!(cells.first(), Some(&(0, 0)));
-}
-#[test]
-fn test_last_cell_plot_drag_line() {
-    let cells = plot_drag_line((0, 0), (5, 3));
-    assert_eq!(cells.last(), Some(&(5, 3)));
-}
-#[test]
-fn test_cells_are_adjacent_plot_drag_line() {
-    let cells = plot_drag_line((0, 0), (5, 3));
-    for pair in cells.windows(2) {
-        let (a, b) = (pair[0], pair[1]);
-        assert!((b.0 as i32 - a.0 as i32).abs() <= 1);
-        assert!((b.1 as i32 - a.1 as i32).abs() <= 1);
-    }
-}
-#[test]
-fn test_length_plot_drag_line() {
-    let cells = plot_drag_line((0, 0), (5, 3));
-    assert_eq!(cells.len(), 6);
-}
-#[test]
-fn test_single_cell_plot_drag_line() {
-    let cells = plot_drag_line((3, 3), (3, 3));
-    assert_eq!(cells, vec![(3, 3)]);
-}
-#[test]
-fn test_line_reverse_plot_drag_line() {
-    let forward = plot_drag_line((0, 0), (5, 3));
-    let reverse = plot_drag_line((5, 3), (0, 0));
-    let mut reverse_reversed = reverse.clone();
-    reverse_reversed.reverse();
-    assert_eq!(forward, reverse_reversed);
-}
-
 
 impl shader::Program<Message> for ColorShader {
     type State = DragState;
@@ -218,6 +259,8 @@ impl shader::Program<Message> for ColorShader {
         ColorPrimitive {
             latest_tick: self.latest_tick,
             latest_paint: self.latest_paint.clone(),
+            sim_type: self.sim_type,
+            paint_color: self.paint_color,
         }
     }
     fn update(
@@ -263,14 +306,6 @@ impl shader::Program<Message> for ColorShader {
             _ => None,
         }
     }
-}
-
-#[derive(Debug)]
-#[allow(dead_code)]
-enum SimulationType {
-    GameOfLife,
-    BriansBrain,
-    Wireworld,
 }
 
 #[derive(Debug)]
@@ -320,8 +355,7 @@ impl shader::Primitive for ColorPrimitive {
         _viewport: &shader::Viewport,
     ) {
         if pipeline.inner.is_none() {
-            let sim_type = SimulationType::GameOfLife;
-            let shader_source = match sim_type {
+            let shader_source = match self.sim_type {
                 SimulationType::GameOfLife => include_str!("game_of_life.wgsl"),
                 SimulationType::BriansBrain => include_str!("brians_brain.wgsl"),
                 SimulationType::Wireworld => include_str!("wireworld.wgsl"),
@@ -545,7 +579,7 @@ impl shader::Primitive for ColorPrimitive {
                         origin: Origin3d { x: *cell_x, y: *cell_y, z: 0 },
                         aspect: TextureAspect::All,
                     },
-                    &[255, 255, 0, 255],
+                    &self.paint_color,
                     TexelCopyBufferLayout {
                         offset: 0,
                         bytes_per_row: Some(4),
@@ -586,7 +620,7 @@ impl shader::Primitive for ColorPrimitive {
         pipeline: &ShaderPipeline,
         encoder: &mut CommandEncoder,
         target: &TextureView,
-        _clip_bounds: &Rectangle<u32>,
+        clip_bounds: &Rectangle<u32>,
     ) {
         let pipeline_ref = pipeline.inner.as_ref().unwrap();
         let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
@@ -595,17 +629,26 @@ impl shader::Primitive for ColorPrimitive {
                 depth_slice: None,
                 resolve_target: None,
                 ops: Operations {
-                    load: LoadOp::Clear(Color {
-                        r: 0.0,
-                        g: 0.0,
-                        b: 0.0,
-                        a: 1.0,
-                    }),
+                    load: LoadOp::Load,
                     store: StoreOp::Store,
                 },
             })],
             ..Default::default()
         });
+        render_pass.set_viewport(
+            clip_bounds.x as f32,
+            clip_bounds.y as f32,
+            clip_bounds.width as f32,
+            clip_bounds.height as f32,
+            0.0,
+            1.0,
+        );
+        render_pass.set_scissor_rect(
+            clip_bounds.x,
+            clip_bounds.y,
+            clip_bounds.width,
+            clip_bounds.height,
+        );
         render_pass.set_pipeline(&pipeline_ref.render_pipeline);
         if pipeline_ref.ping_pong {
             render_pass.set_bind_group(0, &pipeline_ref.display_bind_group_b, &[]);
@@ -614,4 +657,48 @@ impl shader::Primitive for ColorPrimitive {
         }
         render_pass.draw(0..3, 0..1);
     }
+}
+
+
+#[test]
+fn test_plot_drag_line() {
+    let cells = plot_drag_line((0, 0), (5, 3));
+    assert_eq!(cells, vec![(0, 0), (1, 1), (2, 1), (3, 2), (4, 2), (5, 3)]);
+}
+#[test]
+fn test_first_cell_plot_drag_line() {
+    let cells = plot_drag_line((0, 0), (5, 3));
+    assert_eq!(cells.first(), Some(&(0, 0)));
+}
+#[test]
+fn test_last_cell_plot_drag_line() {
+    let cells = plot_drag_line((0, 0), (5, 3));
+    assert_eq!(cells.last(), Some(&(5, 3)));
+}
+#[test]
+fn test_cells_are_adjacent_plot_drag_line() {
+    let cells = plot_drag_line((0, 0), (5, 3));
+    for pair in cells.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        assert!((b.0 as i32 - a.0 as i32).abs() <= 1);
+        assert!((b.1 as i32 - a.1 as i32).abs() <= 1);
+    }
+}
+#[test]
+fn test_length_plot_drag_line() {
+    let cells = plot_drag_line((0, 0), (5, 3));
+    assert_eq!(cells.len(), 6);
+}
+#[test]
+fn test_single_cell_plot_drag_line() {
+    let cells = plot_drag_line((3, 3), (3, 3));
+    assert_eq!(cells, vec![(3, 3)]);
+}
+#[test]
+fn test_line_reverse_plot_drag_line() {
+    let forward = plot_drag_line((0, 0), (5, 3));
+    let reverse = plot_drag_line((5, 3), (0, 0));
+    let mut reverse_reversed = reverse.clone();
+    reverse_reversed.reverse();
+    assert_eq!(forward, reverse_reversed);
 }
