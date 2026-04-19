@@ -1,13 +1,16 @@
-use bytemuck::bytes_of;
 use bytemuck::{Pod, Zeroable};
 use iced::Element;
+use iced::Event;
 use iced::Length::Fill;
 use iced::Rectangle;
 use iced::Subscription;
 use iced::application;
 use iced::mouse;
+use iced::mouse::Button;
+use iced::mouse::Cursor;
 use iced::time;
 use iced::widget;
+use iced::widget::Action;
 use rand::Rng;
 use std::time::{Duration, Instant};
 use wgpu::ComputePipeline;
@@ -26,32 +29,241 @@ use widget::shader;
 #[derive(Default)]
 struct App {
     latest_tick: Option<Instant>,
+    latest_paint: Option<(Instant, Vec<(u32, u32)>)>,
 }
 
 #[derive(Debug)]
 enum Message {
     Tick(Instant),
+    CellsPainted { drag_id: Instant, cells: Vec<(u32, u32)> },
 }
 
+const SIM_WIDTH: u32 = 640;
+const SIM_HEIGHT: u32 = 360;
+
+#[repr(C)]
+#[derive(Pod, Zeroable, Copy, Clone)]
+struct Uniforms {
+    width: f32,
+    height: f32,
+    sim_width: f32,
+    sim_height: f32,
+}
+
+impl App {
+    fn update(&mut self, message: Message) {
+        match message {
+            Message::Tick(instant) => {
+                self.latest_tick = Some(instant);
+            }
+            Message::CellsPainted { drag_id, cells } => {
+                match &mut self.latest_paint {
+                    Some((existing_drag_id, existing_cells))  if *existing_drag_id == drag_id => {
+                        existing_cells.extend(cells);
+                    }
+                    _ => {
+                        self.latest_paint = Some((drag_id, cells));
+                    }
+                }
+            }
+        }
+    }
+    fn view(&self) -> Element<'_, Message> {
+        shader(ColorShader {
+            latest_tick: self.latest_tick,
+            latest_paint: self.latest_paint.clone(),
+        })
+        .width(Fill)
+        .height(Fill)
+        .into()
+    }
+}
+
+fn subscription(_app: &App) -> Subscription<Message> {
+    time::every(Duration::from_millis(100)).map(Message::Tick)
+}
+
+fn main() -> iced::Result {
+    application(App::default, App::update, App::view)
+        .title("game-of-life")
+        .subscription(subscription)
+        .run()
+}
+
+fn cursor_to_cell(cursor: Cursor, bounds: Rectangle) -> Option<(u32, u32)> {
+    let cursor_position = cursor.position_in(bounds);
+    match cursor_position {
+        Some(cursor_position) => {
+            let sim_aspect = SIM_WIDTH as f32 / SIM_HEIGHT as f32;
+            let widget_aspect = bounds.size().width / bounds.size().height;
+            let scale_x = (sim_aspect / widget_aspect).min(1.0);
+            let scale_y = (widget_aspect / sim_aspect).min(1.0);
+            let widget_uv_x = cursor_position.x / bounds.size().width;
+            let widget_uv_y = cursor_position.y / bounds.size().height;
+            let normalized_x = (widget_uv_x - 0.5) / scale_x + 0.5;
+            let normalized_y = (widget_uv_y - 0.5) / scale_y + 0.5;
+            if normalized_x >= 1.0
+                || normalized_x < 0.0
+                || normalized_y >= 1.0
+                || normalized_y < 0.0
+            {
+                None
+            } else {
+                let cell_x = (normalized_x * SIM_WIDTH as f32) as u32;
+                let cell_y = (normalized_y * SIM_HEIGHT as f32) as u32;
+                Some((cell_x, cell_y))
+            }
+        }
+        None => None,
+    }
+
+}
 #[derive(Debug)]
 struct ColorShader {
     latest_tick: Option<Instant>,
+    latest_paint: Option<(Instant, Vec<(u32, u32)>)>,
 }
 
 #[derive(Debug)]
 struct ColorPrimitive {
     latest_tick: Option<Instant>,
+    latest_paint: Option<(Instant, Vec<(u32, u32)>)>,
 }
 
-#[derive(Debug)]
-#[allow(dead_code)]
-enum SeedPattern {
-    Random,
-    Glider,
-    Block,
-    Blinker,
-    Pulsar,
-    WireLoop,
+#[derive(Default)]
+struct DragState {
+    is_dragging: bool,
+    last_cell: Option<(u32, u32)>,
+    drag_id: Option<Instant>,
+}
+
+fn plot_drag_line(a: (u32, u32), b: (u32, u32)) -> Vec<(u32, u32)> {
+    let (mut x0, mut y0) = (a.0 as i32, a.1 as i32);
+    let (x1, y1) = (b.0 as i32, b.1 as i32);
+    let dx = (x1 - x0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let dy = -(y1 - y0).abs();
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut error = dx + dy;
+    let mut cells: Vec<(u32, u32)> = Vec::new();
+    loop {
+        cells.push ((x0 as u32, y0 as u32));
+        let e2 = 2 * error;
+        if e2 >= dy {
+            if x0 == x1 {
+                break;
+            }
+            error += dy;
+            x0 += sx;
+        }
+        if e2 <= dx {
+            if y0 == y1 {
+                break;
+            }
+            error += dx;
+            y0 += sy;
+        }
+    }
+    cells
+}
+
+#[test]
+fn test_plot_drag_line() {
+    let cells = plot_drag_line((0, 0), (5, 3));
+    assert_eq!(cells, vec![(0, 0), (1, 1), (2, 1), (3, 2), (4, 2), (5, 3)]);
+}
+#[test]
+fn test_first_cell_plot_drag_line() {
+    let cells = plot_drag_line((0, 0), (5, 3));
+    assert_eq!(cells.first(), Some(&(0, 0)));
+}
+#[test]
+fn test_last_cell_plot_drag_line() {
+    let cells = plot_drag_line((0, 0), (5, 3));
+    assert_eq!(cells.last(), Some(&(5, 3)));
+}
+#[test]
+fn test_cells_are_adjacent_plot_drag_line() {
+    let cells = plot_drag_line((0, 0), (5, 3));
+    for pair in cells.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        assert!((b.0 as i32 - a.0 as i32).abs() <= 1);
+        assert!((b.1 as i32 - a.1 as i32).abs() <= 1);
+    }
+}
+#[test]
+fn test_length_plot_drag_line() {
+    let cells = plot_drag_line((0, 0), (5, 3));
+    assert_eq!(cells.len(), 6);
+}
+#[test]
+fn test_single_cell_plot_drag_line() {
+    let cells = plot_drag_line((3, 3), (3, 3));
+    assert_eq!(cells, vec![(3, 3)]);
+}
+#[test]
+fn test_line_reverse_plot_drag_line() {
+    let forward = plot_drag_line((0, 0), (5, 3));
+    let reverse = plot_drag_line((5, 3), (0, 0));
+    let mut reverse_reversed = reverse.clone();
+    reverse_reversed.reverse();
+    assert_eq!(forward, reverse_reversed);
+}
+
+
+impl shader::Program<Message> for ColorShader {
+    type State = DragState;
+    type Primitive = ColorPrimitive;
+
+    fn draw(&self, _state: &Self::State, _cursor: Cursor, _bounds: Rectangle) -> ColorPrimitive {
+        ColorPrimitive {
+            latest_tick: self.latest_tick,
+            latest_paint: self.latest_paint.clone(),
+        }
+    }
+    fn update(
+        &self,
+        state: &mut Self::State,
+        event: &Event,
+        bounds: Rectangle,
+        cursor: Cursor,
+    ) -> Option<Action<Message>> {
+        match event {
+            Event::Mouse(mouse::Event::ButtonPressed(Button::Left)) => {
+                if let Some(cell) = cursor_to_cell(cursor, bounds) {
+                    let id = Instant::now();
+                    state.drag_id = Some(id);
+                    state.is_dragging = true;
+                    state.last_cell = Some(cell);
+                    return Some(Action::publish(Message::CellsPainted { drag_id: id, cells: vec![cell] }));
+                }
+                None
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(Button::Left)) => {
+                state.is_dragging = false;
+                state.last_cell = None;
+                state.drag_id = None;
+                None
+            }
+            Event::Mouse(mouse::Event::CursorMoved{..}) => {
+                if !state.is_dragging {
+                    return None;
+                }
+                let Some(new) = cursor_to_cell(cursor, bounds) else {
+                    state.last_cell = None;
+                    return None;
+                };
+                let cells = match state.last_cell {
+                    Some(last) if new != last => plot_drag_line(last, new),
+                    Some(_) => return None,
+                    None => vec![new],
+                };
+                state.last_cell = Some(new);
+                Some(Action::publish(Message::CellsPainted { drag_id: state.drag_id.unwrap(), cells }))
+            }
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -78,64 +290,14 @@ struct ShaderPipelineInner {
     _sampler: Sampler,
     ping_pong: bool,
     last_processed_tick: Option<Instant>,
+    last_applied_drag_id: Option<Instant>,
+    last_applied_count: usize,
 }
 
 #[derive(Debug)]
 struct ShaderPipeline {
     format: TextureFormat,
     inner: Option<ShaderPipelineInner>,
-}
-
-const SIM_WIDTH: u32 = 640;
-const SIM_HEIGHT: u32 = 360;
-
-#[repr(C)]
-#[derive(Pod, Zeroable, Copy, Clone)]
-struct Uniforms {
-    width: f32,
-    height: f32,
-    sim_width: f32,
-    sim_height: f32,
-}
-
-impl App {
-    fn update(&mut self, message: Message) {
-        match message {
-            Message::Tick(instant) => {
-                self.latest_tick = Some(instant);
-            }
-        }
-    }
-    fn view(&self) -> Element<'_, Message> {
-        shader(ColorShader {
-            latest_tick: self.latest_tick,
-        })
-        .width(Fill)
-        .height(Fill)
-        .into()
-    }
-}
-
-fn subscription(_app: &App) -> Subscription<Message> {
-    time::every(Duration::from_millis(100)).map(Message::Tick)
-}
-
-fn main() -> iced::Result {
-    application(App::default, App::update, App::view)
-        .title("game-of-life")
-        .subscription(subscription)
-        .run()
-}
-
-impl shader::Program<Message> for ColorShader {
-    type State = ();
-    type Primitive = ColorPrimitive;
-
-    fn draw(&self, _state: &(), _cursor: mouse::Cursor, _bounds: Rectangle) -> ColorPrimitive {
-        ColorPrimitive {
-            latest_tick: self.latest_tick,
-        }
-    }
 }
 
 impl shader::Pipeline for ShaderPipeline {
@@ -159,7 +321,7 @@ impl shader::Primitive for ColorPrimitive {
         _viewport: &shader::Viewport,
     ) {
         if pipeline.inner.is_none() {
-            let sim_type = SimulationType::Wireworld;
+            let sim_type = SimulationType::GameOfLife;
             let shader_source = match sim_type {
                 SimulationType::GameOfLife => include_str!("game_of_life.wgsl"),
                 SimulationType::BriansBrain => include_str!("brians_brain.wgsl"),
@@ -177,7 +339,6 @@ impl shader::Primitive for ColorPrimitive {
                 cache: None,
                 compilation_options: Default::default(),
             });
-
             let _texture_a = device.create_texture(&wgpu::TextureDescriptor {
                 label: None,
                 size: Extent3d {
@@ -189,7 +350,7 @@ impl shader::Primitive for ColorPrimitive {
                 sample_count: 1,
                 dimension: TextureDimension::D2,
                 format: TextureFormat::Rgba8Unorm,
-                usage: TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING,
+                usage: TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
                 view_formats: &[],
             });
             let _texture_b = device.create_texture(&wgpu::TextureDescriptor {
@@ -208,7 +369,7 @@ impl shader::Primitive for ColorPrimitive {
                     | TextureUsages::COPY_DST,
                 view_formats: &[],
             });
-            let data = generate_seed(SeedPattern::WireLoop, SIM_WIDTH as i32, SIM_HEIGHT as i32);
+            let data = generate_seed(SeedPattern::WireLoop, SIM_WIDTH as i32, SIM_HEIGHT as i32, (SIM_WIDTH/2) as i32, (SIM_HEIGHT/2) as i32, true);
             queue.write_texture(
                 TexelCopyTextureInfo {
                     texture: &_texture_b,
@@ -228,10 +389,8 @@ impl shader::Primitive for ColorPrimitive {
                     depth_or_array_layers: 1,
                 },
             );
-
             let _texture_view_a = _texture_a.create_view(&TextureViewDescriptor::default());
             let _texture_view_b = _texture_b.create_view(&TextureViewDescriptor::default());
-
             let bind_group_a = device.create_bind_group(&BindGroupDescriptor {
                 label: None,
                 layout: &compute_pipeline.get_bind_group_layout(0),
@@ -334,6 +493,8 @@ impl shader::Primitive for ColorPrimitive {
             });
             let ping_pong = true;
             let last_processed_tick = None;
+            let last_applied_drag_id = None;
+            let last_applied_count = 0;
 
             pipeline.inner = Some(ShaderPipelineInner {
                 compute_pipeline,
@@ -350,6 +511,8 @@ impl shader::Primitive for ColorPrimitive {
                 _sampler,
                 ping_pong,
                 last_processed_tick,
+                last_applied_drag_id,
+                last_applied_count,
             });
         }
         let pipeline_ref = pipeline.inner.as_mut().unwrap();
@@ -365,7 +528,39 @@ impl shader::Primitive for ColorPrimitive {
             bytemuck::bytes_of(&uniforms),
         );
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor::default());
-        {
+        {   if let Some((_drag_id, cells)) = &self.latest_paint {
+            if pipeline_ref.last_applied_drag_id != Some(*_drag_id){
+                pipeline_ref.last_applied_drag_id = Some(*_drag_id);
+                pipeline_ref.last_applied_count = 0;
+            }
+            for (cell_x, cell_y) in &cells[pipeline_ref.last_applied_count..] {
+                let texture_to_write = if pipeline_ref.ping_pong {
+                    &pipeline_ref._texture_b
+                } else {
+                    &pipeline_ref._texture_a
+                };
+                queue.write_texture(
+                    TexelCopyTextureInfo {
+                        texture: texture_to_write,
+                        mip_level: 0,
+                        origin: Origin3d { x: *cell_x, y: *cell_y, z: 0 },
+                        aspect: TextureAspect::All,
+                    },
+                    &[255, 255, 0, 255],
+                    TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(4),
+                        rows_per_image: Some(1),
+                    },
+                    Extent3d {
+                        width: 1,
+                        height: 1,
+                        depth_or_array_layers: 1,
+                    },
+                );
+                pipeline_ref.last_applied_count = cells.len();
+            }
+        }
             if pipeline_ref.last_processed_tick != self.latest_tick {
                 let mut compute_pass =
                     encoder.begin_compute_pass(&ComputePassDescriptor::default());
@@ -422,10 +617,29 @@ impl shader::Primitive for ColorPrimitive {
     }
 }
 
-fn generate_seed(pattern: SeedPattern, width: i32, height: i32) -> Vec<u8> {
+#[derive(Debug)]
+#[allow(dead_code)]
+enum SeedPattern {
+    Random,
+    Glider,
+    Block,
+    Blinker,
+    Pulsar,
+    WireLoop,
+}
+
+fn generate_seed(pattern: SeedPattern, width: i32, height: i32, center_x: i32, center_y: i32, clear: bool) -> Vec<u8> {
     match pattern {
         SeedPattern::Random => {
             let mut seed: Vec<u8> = Vec::new();
+            match clear {
+                true => {
+                    for _ in 0..(SIM_WIDTH as i32 * SIM_HEIGHT as i32) {
+                        seed.extend_from_slice(&[0, 0, 0, 255]);
+                    }
+                }
+                false => {}
+            }
             for _ in 0..((width * height) as i32) {
                 let alive = rand::thread_rng().gen_bool(0.2) == true;
                 seed.extend_from_slice(if alive {
@@ -438,11 +652,14 @@ fn generate_seed(pattern: SeedPattern, width: i32, height: i32) -> Vec<u8> {
         }
         SeedPattern::Glider => {
             let mut seed: Vec<u8> = Vec::new();
-            for _ in 0..((width * height) as i32) {
-                seed.extend_from_slice(&[0, 0, 0, 255]);
+            match clear {
+                true => {
+                    for _ in 0..(SIM_WIDTH as i32 * SIM_HEIGHT as i32) {
+                        seed.extend_from_slice(&[0, 0, 0, 255]);
+                    }
+                }
+                false => {}
             }
-            let center_x = width / 2;
-            let center_y = height / 2;
             let glider_positions = [
                 (center_x + 1, center_y),
                 (center_x + 2, center_y + 1),
@@ -451,18 +668,21 @@ fn generate_seed(pattern: SeedPattern, width: i32, height: i32) -> Vec<u8> {
                 (center_x + 2, center_y + 2),
             ];
             for (x, y) in glider_positions {
-                let index = (y * width + x) as usize * 4;
+                let index = (y * SIM_WIDTH as i32 + x) as usize * 4;
                 seed[index..index + 4].copy_from_slice(&[255, 255, 0, 255]);
             }
             seed
         }
         SeedPattern::Block => {
             let mut seed: Vec<u8> = Vec::new();
-            for _ in 0..((width * height) as i32) {
-                seed.extend_from_slice(&[0, 0, 0, 255]);
+            match clear {
+                true => {
+                    for _ in 0..(SIM_WIDTH as i32 * SIM_HEIGHT as i32) {
+                        seed.extend_from_slice(&[0, 0, 0, 255]);
+                    }
+                }
+                false => {}
             }
-            let center_x = width / 2;
-            let center_y = height / 2;
             let block_positions = [
                 (center_x, center_y),
                 (center_x + 1, center_y),
@@ -470,36 +690,42 @@ fn generate_seed(pattern: SeedPattern, width: i32, height: i32) -> Vec<u8> {
                 (center_x + 1, center_y + 1),
             ];
             for (x, y) in block_positions {
-                let index = (y * width + x) as usize * 4;
+                let index = (y * SIM_WIDTH as i32 + x) as usize * 4;
                 seed[index..index + 4].copy_from_slice(&[255, 255, 0, 255]);
             }
             seed
         }
         SeedPattern::Blinker => {
             let mut seed: Vec<u8> = Vec::new();
-            for _ in 0..((width * height) as i32) {
-                seed.extend_from_slice(&[0, 0, 0, 255]);
+            match clear {
+                true => {
+                    for _ in 0..(SIM_WIDTH as i32 * SIM_HEIGHT as i32) {
+                        seed.extend_from_slice(&[0, 0, 0, 255]);
+                    }
+                }
+                false => {}
             }
-            let center_x = width / 2;
-            let center_y = height / 2;
             let blinker_positions = [
                 (center_x, center_y),
                 (center_x + 1, center_y),
                 (center_x + 2, center_y),
             ];
             for (x, y) in blinker_positions {
-                let index = (y * width + x) as usize * 4;
+                let index = (y * SIM_WIDTH as i32 + x) as usize * 4;
                 seed[index..index + 4].copy_from_slice(&[255, 255, 0, 255]);
             }
             seed
         }
         SeedPattern::Pulsar => {
             let mut seed: Vec<u8> = Vec::new();
-            for _ in 0..((width * height) as i32) {
-                seed.extend_from_slice(&[0, 0, 0, 255]);
+            match clear {
+                true => {
+                    for _ in 0..(SIM_WIDTH as i32 * SIM_HEIGHT as i32) {
+                        seed.extend_from_slice(&[0, 0, 0, 255]);
+                    }
+                }
+                false => {}
             }
-            let center_x = width / 2;
-            let center_y = height / 2;
             let pulsar_positions = [
                 (center_x + 2, center_y),
                 (center_x + 3, center_y),
@@ -551,18 +777,21 @@ fn generate_seed(pattern: SeedPattern, width: i32, height: i32) -> Vec<u8> {
                 (center_x + 10, center_y + 12),
             ];
             for (x, y) in pulsar_positions {
-                let index = (y * width + x) as usize * 4;
+                let index = (y * SIM_WIDTH as i32 + x) as usize * 4;
                 seed[index..index + 4].copy_from_slice(&[255, 255, 0, 255]);
             }
             seed
         }
         SeedPattern::WireLoop => {
             let mut seed: Vec<u8> = Vec::new();
-            for _ in 0..((width * height) as i32) {
-                seed.extend_from_slice(&[0, 0, 0, 255]);
+            match clear {
+                true => {
+                    for _ in 0..(SIM_WIDTH as i32 * SIM_HEIGHT as i32) {
+                        seed.extend_from_slice(&[0, 0, 0, 255]);
+                    }
+                }
+                false => {}
             }
-            let center_x = width / 2;
-            let center_y = height / 2;
             let wire_positions = [
                 (center_x, center_y),
                 (center_x + 1, center_y),
@@ -590,17 +819,17 @@ fn generate_seed(pattern: SeedPattern, width: i32, height: i32) -> Vec<u8> {
                 (center_x + 9, center_y + 4),
             ];
             for (x, y) in wire_positions {
-                let index = (y * width + x) as usize * 4;
+                let index = (y * SIM_WIDTH as i32 + x) as usize * 4;
                 seed[index..index + 4].copy_from_slice(&[255, 128, 0, 255]);
             }
             let head_positions = [(center_x + 5, center_y + 4)];
             for (x, y) in head_positions {
-                let index = (y * width + x) as usize * 4;
+                let index = (y * SIM_WIDTH as i32 + x) as usize * 4;
                 seed[index..index + 4].copy_from_slice(&[153, 153, 0, 255]);
             }
             let tail_positions = [(center_x + 6, center_y + 4)];
             for (x, y) in tail_positions {
-                let index = (y * width + x) as usize * 4;
+                let index = (y * SIM_WIDTH as i32 + x) as usize * 4;
                 seed[index..index + 4].copy_from_slice(&[76, 76, 0, 255]);
             }
             seed
