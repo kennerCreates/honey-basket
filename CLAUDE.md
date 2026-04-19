@@ -146,14 +146,20 @@ assumes painting exists.
 - Continuous painting while dragging (not just discrete clicks)
 - Paint-while-running vs pause-while-painting as a user-facing toggle
 
-### Module 6 — Falling Sand
+### Module 6 — Falling Sand (SKIPPED — optional future work)
+Skipped because the determinism problem (GPU parallel writes racing for the
+same destination cell) is a side quest relative to the Lenia-style petri-dish
+goal. The deterministic solutions (Margolus block CA, propose/resolve two-pass)
+are real techniques but don't stack into Module 7+. Held open in case interest
+returns.
+
 - Non-uniform update order and why it matters
 - Directional rules (gravity = check below before beside)
 - Material type dispatch: how to handle sand vs water vs fire differently
 - Randomized stepping to avoid update artifacts
 - Multiple materials interacting (water + sand, fire + flammable materials)
 
-### Module 7 — Reaction-Diffusion (Gray-Scott)
+### Module 7 — Reaction-Diffusion (Gray-Scott)  ← NEXT
 - Continuous values instead of discrete states — what changes in the shader
 - Multi-channel state (U and V chemical concentrations) in a single texture
 - The Laplacian kernel: what it is mathematically, how it's implemented as

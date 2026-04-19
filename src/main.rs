@@ -28,8 +28,10 @@ struct App {
     paused: bool,
 }
 
-const SIM_WIDTH: u32 = 640;
-const SIM_HEIGHT: u32 = 360;
+//needs to be multiple of 8
+const SIM_WIDTH: u32 = 320;
+const SIM_HEIGHT: u32 = 192;
+const _: () = assert!(SIM_WIDTH % 8 == 0 && SIM_HEIGHT % 8 == 0);
 
 #[derive(Debug, Clone)]
 enum Message {
