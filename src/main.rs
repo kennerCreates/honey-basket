@@ -11,7 +11,7 @@ use wgpu::ComputePipeline;
 use wgpu::TextureUsages;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindingResource, Buffer, BufferDescriptor,
-    BufferUsages, Color, ColorTargetState, ColorWrites, CommandEncoder, CommandEncoderDescriptor,
+    BufferUsages, ColorTargetState, ColorWrites, CommandEncoder, CommandEncoderDescriptor,
     ComputePassDescriptor, ComputePipelineDescriptor, Device, Extent3d, FragmentState, LoadOp,
     Operations, Origin3d, Queue, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
     RenderPipelineDescriptor, Sampler, SamplerDescriptor, ShaderModuleDescriptor, ShaderSource,
@@ -32,6 +32,8 @@ struct App {
 const SIM_WIDTH: u32 = 320;
 const SIM_HEIGHT: u32 = 192;
 const _: () = assert!(SIM_WIDTH % 8 == 0 && SIM_HEIGHT % 8 == 0);
+
+const SIM_STEPS_PER_TICK: u32 = 20;
 
 #[derive(Debug, Clone)]
 enum Message {
@@ -67,10 +69,11 @@ struct DragState {
 #[derive(Debug, Default, Clone, Copy)]
 #[allow(dead_code)]
 enum SimulationType {
-    #[default]
     GameOfLife,
     BriansBrain,
     Wireworld,
+    #[default]
+    ReactionDiffusion,
 }
 
 #[derive(Default)]
@@ -160,7 +163,7 @@ fn subscription(app: &App) -> Subscription<Message> {
     if app.paused {
         Subscription::none()
     } else {
-        time::every(Duration::from_millis(100)).map(Message::Tick)
+        time::every(Duration::from_millis(10)).map(Message::Tick)
     }
 }
 
@@ -188,6 +191,9 @@ impl SimulationType {
                 CellState { name: "Wire", color: [255, 128, 0, 255] },
                 CellState { name: "Head", color: [153, 153, 0, 255] },
                 CellState { name: "Tail", color: [76, 76, 255, 255] },
+            ],
+            SimulationType::ReactionDiffusion => &[
+                CellState { name: "Seed V", color: [0, 255, 0, 255] },
             ],
         }
     }
@@ -361,6 +367,7 @@ impl shader::Primitive for ColorPrimitive {
                 SimulationType::GameOfLife => include_str!("game_of_life.wgsl"),
                 SimulationType::BriansBrain => include_str!("brians_brain.wgsl"),
                 SimulationType::Wireworld => include_str!("wireworld.wgsl"),
+                SimulationType::ReactionDiffusion => include_str!("reaction_diffusion.wgsl"),
             };
             let shader_module = device.create_shader_module(ShaderModuleDescriptor {
                 label: None,
@@ -404,7 +411,7 @@ impl shader::Primitive for ColorPrimitive {
                     | TextureUsages::COPY_DST,
                 view_formats: &[],
             });
-            let data: Vec<u8> = vec![0u8, 0, 0, 255].repeat((SIM_WIDTH * SIM_HEIGHT) as usize);
+            let data: Vec<u8> = vec![255, 0, 0, 255].repeat((SIM_WIDTH * SIM_HEIGHT) as usize);
             queue.write_texture(
                 TexelCopyTextureInfo {
                     texture: &_texture_b,
